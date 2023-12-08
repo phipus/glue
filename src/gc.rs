@@ -174,6 +174,7 @@ pub unsafe fn mark_instructions(code: &[Instruction]) {
             Instruction::PopLocal(_) => (),
             Instruction::GetField(_) => (),
             Instruction::SetField(_) => (),
+            Instruction::PopDiscard => (),
             Instruction::Call(func) => mark_function(*func),
             Instruction::NativeCall(_) => (),
             Instruction::Ret => (),

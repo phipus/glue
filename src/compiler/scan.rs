@@ -193,6 +193,7 @@ pub mod token {
         , LE
         , GE
         , NE
+        , LET
     }
 }
 
@@ -321,6 +322,7 @@ lazy_static! {
         char_token('/'),
         str_token(">=", token::GE),
         str_token("<=", token::LE),
+        str_token("let", token::LET),
         expr_token(r"^[1-9][0-9]*$", token::INT),
         expr_token(r"^([1-9][0-9]*|0)\.[0-9]+$", token::FLOAT),
         expr_token(r"^[a-zA-Z_][a-zA-Z_0-9]*$", token::IDENT),

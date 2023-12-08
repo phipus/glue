@@ -1,5 +1,10 @@
+use std::rc::Rc;
+
 use super::{
-    ast::{BinaryOpNode, BinaryOperand, FloatNode, IntNode},
+    ast::{
+        AssignmentNode, BinaryOpNode, BinaryOperand, BlockNode, CallNode, DeclarationNode,
+        FloatNode, IntNode, VariableNode,
+    },
     compile::Node,
     error::CompileError,
     scan::{token, Scan, Token},
@@ -41,13 +46,42 @@ impl<'a> Parse<'a> {
 
     pub fn parse_atom(&mut self) -> Result<Node> {
         let node: Node = match self.l0.kind {
-            token::INT => Box::new(IntNode::new(self.consume())),
-            token::FLOAT => Box::new(FloatNode::new(self.consume())),
+            token::INT => Node::Int(IntNode::new(self.consume())),
+            token::FLOAT => Node::Float(FloatNode::new(self.consume())),
+            token::IDENT => Node::Variable(VariableNode::new(self.consume())),
 
             _ => return Err(self.err_unexpected_token(&self.l0)),
         };
 
         Ok(node)
+    }
+
+    pub fn parse_postfix(&mut self) -> Result<Node> {
+        let atom = self.parse_atom()?;
+
+        if self.l0.kind == '(' as i32 {
+            self.consume();
+            let mut args = Vec::<Node>::new();
+            while self.l0.kind != ')' as i32 {
+                let n = self.parse_expr()?;
+                args.push(n);
+
+                if self.l0.kind == ',' as i32 {
+                    self.consume();
+                } else {
+                    break;
+                }
+            }
+            let end = self.consume(); // consume the )
+
+            Ok(Node::Call(Box::new(CallNode {
+                value: atom,
+                args,
+                end,
+            })))
+        } else {
+            Ok(atom)
+        }
     }
 
     fn parse_factor(&mut self) -> Result<Node> {
@@ -71,7 +105,19 @@ impl<'a> Parse<'a> {
     }
 
     pub fn parse_expr(&mut self) -> Result<Node> {
-        self.parse_term()
+        match self.l0.kind {
+            token::LET => self.parse_let_stmt(),
+            _ => {
+                let left = self.parse_term()?;
+                if self.l0.kind == '=' as i32 {
+                    self.consume();
+                    let right = self.parse_term()?;
+                    Ok(Node::Assignment(Box::new(AssignmentNode::new(left, right))))
+                } else {
+                    Ok(left)
+                }
+            }
+        }
     }
 
     pub fn parse_binaryop<F: FnMut(&mut Parse) -> Result<Node>>(
@@ -94,13 +140,96 @@ impl<'a> Parse<'a> {
             if node_ops.len() == 0 {
                 return Ok(initial);
             }
-            return Ok(Box::new(BinaryOpNode {
+            return Ok(Node::BinaryOp(Box::new(BinaryOpNode {
                 initial,
                 expr_type: CompileType::Bool,
                 ops: node_ops,
-            }));
+            })));
         }
     }
+
+    fn get_token_value(&self, start: Token, end: Token) -> Rc<str> {
+        Rc::from(&self.scan.input[start.start..end.end])
+    }
+
+    fn parse_let_stmt(&mut self) -> Result<Node> {
+        let start = self.consume_token(token::LET)?;
+        let ident = self.consume_token(token::IDENT)?;
+        let mut ctype = None;
+        if self.l0.kind == ':' as i32 {
+            self.consume();
+            ctype = Some(self.parse_type()?);
+        }
+
+        let mut end = ident;
+        let mut assignment = None;
+        if self.l0.kind == '=' as i32 {
+            self.consume();
+            let expr = self.parse_expr()?;
+            end = expr.end_token();
+            assignment = Some(expr);
+        }
+
+        Ok(Node::Declaration(Box::new(DeclarationNode {
+            start,
+            end,
+            name: self.get_token_value(ident, ident),
+            assignment,
+            ctype,
+            symbol: None,
+        })))
+    }
+
+    fn parse_type(&mut self) -> Result<CompileType> {
+        panic!("not implemented")
+    }
+
+    pub fn parse_block(&mut self, kind: BlockKind) -> Result<Node> {
+        match kind {
+            BlockKind::WholeFile => {
+                let mut exprs = Vec::<Node>::new();
+
+                while self.l0.kind != token::EOF {
+                    let n = self.parse_expr()?;
+                    exprs.push(n);
+                }
+
+                Ok(Node::Block(BlockNode::new(exprs)))
+            }
+            BlockKind::Curly => {
+                let mut exprs = Vec::<Node>::new();
+
+                self.consume_token('{' as i32)?;
+                while self.l0.kind != '}' as i32 {
+                    let n = self.parse_expr()?;
+
+                    match &n {
+                        Node::Assignment(_) | Node::Declaration(_) => {
+                            self.consume_token(';' as i32)?;
+                        }
+                        _ => {
+                            return Err(CompileError::SyntaxError(format!(
+                                "{} not allowed here",
+                                n.node_kind_str()
+                            )))
+                        }
+                    }
+
+                    exprs.push(n);
+                }
+
+                Ok(Node::Block(BlockNode::new(exprs)))
+            }
+            BlockKind::Expr => self.parse_expr(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum BlockKind {
+    WholeFile,
+    Expr,
+    Curly,
 }
 
 #[cfg(test)]
@@ -121,26 +250,30 @@ mod tests {
     fn test_parse_expr() {
         let mut p = Parse::new("2 + 2 / 4", "<inline>");
         let mut expr = p.parse_expr().unwrap();
+        let gc = Arc::new(Mutex::new(Collector::new()));
 
         let mut code = Vec::<Instruction>::new();
 
-        let mut ctx = &mut CompileContext {
-            input: p.scan.input,
-        };
+        let mut ctx = &mut CompileContext::new(p.scan.input, &*gc);
 
         expr.check_type(ctx, Some(CompileType::Float)).unwrap();
-
+        let field_types = ctx.scope.generate_frame(&ctx.trepo);
         expr.compile(&mut ctx, &mut code).unwrap();
 
-        let mut gc = Collector::new();
-        let builtins = Builtins::new(&mut gc);
+        let builtins;
+        let code_obj;
+        let ftype;
+        {
+            let mut gc = gc.lock().unwrap();
+            builtins = Builtins::new(&mut gc);
 
-        code.push(Instruction::Call(builtins.print_float));
+            code.push(Instruction::Call(builtins.print_float));
 
-        let code_obj = gc.new_code_obj(code.into_boxed_slice());
-        let ftype = gc.new_frame_type(Box::new([]));
+            code_obj = gc.new_code_obj(code.into_boxed_slice());
+            ftype = gc.new_frame_type(field_types.into_boxed_slice());
+        };
 
-        let mut rt = Thread::new(Arc::new(Mutex::new(gc)));
+        let mut rt = Thread::new(gc);
         unsafe {
             rt.push_frame(ftype, code_obj, 0);
             rt.eval().unwrap();

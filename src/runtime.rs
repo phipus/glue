@@ -122,6 +122,9 @@ impl Thread {
                         Some((o, _)) => (*o.o).fields[offset as usize] = v,
                     },
                 },
+                Instruction::PopDiscard => {
+                    self.eval_stack.pop();
+                }
                 Instruction::Call(func_ptr) => {
                     let func = &*func_ptr;
                     self.backup_code_and_fp(code, fp);

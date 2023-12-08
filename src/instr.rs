@@ -17,6 +17,7 @@ pub enum Instruction {
     PopLocal(u32),
     GetField((u32, RuntimeType)),
     SetField(u32),
+    PopDiscard,
     Call(*mut Function),
     NativeCall(fn(locals: &mut [Value], eval_stack: &mut Vec<(Value, RuntimeType)>)),
     Ret,
