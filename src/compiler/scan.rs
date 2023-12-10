@@ -136,7 +136,7 @@ impl<'a> Scan<'a> {
 
         while let Some(ch) = self.l0 {
             match ch.value {
-                '{' | '}' | '[' | ']' | '(' | ')' | '.' => {
+                '{' | '}' | '[' | ']' | '(' | ')' | '.' | ';' => {
                     // breaking character
                     if start.start == ch.start {
                         self.l0 = self.chars.next();
@@ -153,6 +153,9 @@ impl<'a> Scan<'a> {
                         } else {
                             return self.create_token(&start, &end);
                         }
+                    } else {
+                        end = ch;
+                        self.l0 = self.chars.next();
                     }
                 }
 
@@ -166,6 +169,19 @@ impl<'a> Scan<'a> {
                 value if value.is_whitespace() => {
                     self.l0 = self.chars.next();
                     break;
+                }
+
+                value if value.is_digit(10) => {
+                    self.l0 = self.chars.next();
+                    while let Some(ch) = self.l0 {
+                        match ch.value {
+                            '0'..='9' | '.' | 'e' | 'E' => {
+                                end = ch;
+                                self.l0 = self.chars.next();
+                            }
+                            _ => break,
+                        }
+                    }
                 }
 
                 _ => {
@@ -320,6 +336,7 @@ lazy_static! {
         char_token('-'),
         char_token('*'),
         char_token('/'),
+        char_token(';'),
         str_token(">=", token::GE),
         str_token("<=", token::LE),
         str_token("let", token::LET),

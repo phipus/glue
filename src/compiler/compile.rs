@@ -484,7 +484,7 @@ fn binary_operand_to_instr(t: &CompileType, op: &BinaryOperand) -> Result<Instru
 
 pub struct CompileContext<'a> {
     pub input: &'a str,
-    pub scope: FuncScope<'a>,
+    pub scope: FuncScope,
     pub functions: Vec<*mut Function>,
     pub gc: &'a Mutex<Collector>,
     pub trepo: TypeRepo,
@@ -507,8 +507,8 @@ pub struct SymbolID {
     index: usize,
 }
 
-pub struct FuncScope<'a> {
-    pub parent: Option<&'a mut FuncScope<'a>>,
+pub struct FuncScope {
+    pub parent: Option<Box<FuncScope>>,
     pub names: HashMap<Box<str>, SymbolID>,
     pub symbols: Vec<Symbol>,
     pub active_scopes: Vec<u32>,
@@ -518,7 +518,7 @@ pub struct FuncScope<'a> {
     locations: Vec<SymbolLocation>,
 }
 
-impl<'a> FuncScope<'a> {
+impl FuncScope {
     pub fn new() -> Self {
         Self {
             parent: None,
@@ -529,6 +529,22 @@ impl<'a> FuncScope<'a> {
             name_buf: String::new(),
             current_scopeid: 1,
             locations: Vec::new(),
+        }
+    }
+
+    pub fn push_scope(&mut self) {
+        let mut parent = Box::new(Self::new());
+        std::mem::swap(self, &mut *parent);
+        self.parent = Some(parent);
+    }
+
+    pub fn pop_scope(&mut self) -> Option<Box<Self>> {
+        match self.parent.take() {
+            None => None,
+            Some(mut parent) => {
+                std::mem::swap(self, &mut *parent);
+                Some(parent)
+            }
         }
     }
 
@@ -650,10 +666,20 @@ impl<'a> FuncScope<'a> {
     pub fn generate_frame(&mut self, trepo: &TypeRepo) -> Vec<RuntimeType> {
         let mut fields = Vec::<RuntimeType>::new();
         for sym in &self.symbols {
-            let loc = SymbolLocation::Local {
-                offset: fields.len() as u32,
+            let loc = match sym.kind {
+                SymbolKind::Function { ptr } => SymbolLocation::Function { ptr },
+                SymbolKind::Variable {
+                    scopeid: _,
+                    captured: _,
+                    assigned: _,
+                } => {
+                    sym.ctype.fields(&mut fields, trepo);
+                    SymbolLocation::Local {
+                        offset: (fields.len() - 1) as u32,
+                    }
+                }
             };
-            sym.ctype.fields(&mut fields, trepo);
+
             self.locations.push(loc);
         }
 

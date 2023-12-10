@@ -72,7 +72,7 @@ impl<'a> Parse<'a> {
                     break;
                 }
             }
-            let end = self.consume(); // consume the )
+            let end = self.consume_token(')' as i32)?; // consume the )
 
             Ok(Node::Call(Box::new(CallNode {
                 value: atom,
@@ -86,7 +86,7 @@ impl<'a> Parse<'a> {
 
     fn parse_factor(&mut self) -> Result<Node> {
         self.parse_binaryop(
-            |p| p.parse_atom(),
+            |p| p.parse_postfix(),
             &[
                 ('*' as i32, BinaryOperand::Mul),
                 ('/' as i32, BinaryOperand::Div),
@@ -105,20 +105,34 @@ impl<'a> Parse<'a> {
     }
 
     pub fn parse_expr(&mut self) -> Result<Node> {
-        match self.l0.kind {
-            token::LET => self.parse_let_stmt(),
+        self.parse_term()
+    }
+
+    pub fn parse_stmt(&mut self, with_semicolon: bool) -> Result<Node> {
+        let (node, requires_semicolon) = match self.l0.kind {
+            token::LET => {
+                (self.parse_let_stmt()?, true)
+            },
             _ => {
-                let left = self.parse_term()?;
+                let left = self.parse_expr()?;
                 if self.l0.kind == '=' as i32 {
                     self.consume();
-                    let right = self.parse_term()?;
-                    Ok(Node::Assignment(Box::new(AssignmentNode::new(left, right))))
+                    let right = self.parse_expr()?;
+                    (Node::Assignment(Box::new(AssignmentNode::new(left, right))), true)
                 } else {
-                    Ok(left)
+                    (left, true)
                 }
             }
+        };
+
+        if requires_semicolon && with_semicolon {
+            self.consume_token(';' as i32)?;
         }
+
+        Ok(node)
     }
+
+    
 
     pub fn parse_binaryop<F: FnMut(&mut Parse) -> Result<Node>>(
         &mut self,
@@ -190,7 +204,7 @@ impl<'a> Parse<'a> {
                 let mut exprs = Vec::<Node>::new();
 
                 while self.l0.kind != token::EOF {
-                    let n = self.parse_expr()?;
+                    let n = self.parse_stmt(true)?;
                     exprs.push(n);
                 }
 
@@ -201,7 +215,7 @@ impl<'a> Parse<'a> {
 
                 self.consume_token('{' as i32)?;
                 while self.l0.kind != '}' as i32 {
-                    let n = self.parse_expr()?;
+                    let n = self.parse_stmt(true)?;
 
                     match &n {
                         Node::Assignment(_) | Node::Declaration(_) => {

@@ -211,6 +211,10 @@ impl Thread {
             }
         }
     }
+
+    pub unsafe fn push_func(&mut self, func: *mut Function) {
+        self.push_frame((*func).ftype, (*func).code, (*func).code_offset)
+    }
 }
 
 pub struct StackFrame {
