@@ -348,6 +348,12 @@ impl Node {
                                 "can not declare function as variable"
                             )))
                         }
+
+                        SymbolLocation::Type { ctype: _ } => {
+                            return Err(CompileError::TypeError(format!(
+                                "can not declare type as variable"
+                            )))
+                        }
                     }
                 }
 
@@ -368,6 +374,9 @@ impl Node {
                         return Err(CompileError::TypeError(format!(
                             "can not evaluate function (call required)"
                         )))
+                    }
+                    SymbolLocation::Type { ctype: _ } => {
+                        return Err(CompileError::TypeError(format!("can not evaluate type")))
                     }
                 }
                 Ok(())
@@ -391,6 +400,9 @@ impl Node {
                             return Err(CompileError::TypeError(format!(
                                 "can not assign to function"
                             )))
+                        }
+                        SymbolLocation::Type { ctype: _ } => {
+                            return Err(CompileError::TypeError(format!("can not assign type")))
                         }
                     }
 
@@ -426,6 +438,9 @@ impl Node {
                         }
                         SymbolLocation::Local { offset: _ } => {
                             panic!("function pointers not implemented")
+                        }
+                        SymbolLocation::Type { ctype: _ } => {
+                            Err(CompileError::TypeError(format!("type is not callable")))
                         }
                     }
                 }
@@ -631,6 +646,13 @@ impl FuncScope {
 
                                     Some((0, self.declare_symbol_scoped(name, symbol, 0)))
                                 }
+                                SymbolKind::Type { ctype } => {
+                                    let symbol = Symbol {
+                                        ctype: *ctype,
+                                        kind: SymbolKind::Type { ctype: *ctype },
+                                    };
+                                    Some((0, self.declare_symbol_scoped(name, symbol, 0)))
+                                }
                             }
                         }
                     }
@@ -678,6 +700,7 @@ impl FuncScope {
                         offset: (fields.len() - 1) as u32,
                     }
                 }
+                SymbolKind::Type { ctype } => SymbolLocation::Type { ctype },
             };
 
             self.locations.push(loc);
@@ -696,6 +719,9 @@ pub enum SymbolKind {
     Function {
         ptr: *mut Function,
     },
+    Type {
+        ctype: CompileType,
+    },
 }
 
 pub struct Symbol {
@@ -706,4 +732,5 @@ pub struct Symbol {
 pub enum SymbolLocation {
     Local { offset: u32 },
     Function { ptr: *mut Function },
+    Type { ctype: CompileType },
 }

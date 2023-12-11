@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use super::{
     compile::{Node, SymbolID},
     scan::Token,
@@ -49,8 +47,9 @@ pub struct BinaryOpNode {
 pub struct DeclarationNode {
     pub start: Token,
     pub end: Token,
-    pub name: Rc<str>,
+    pub name: Box<str>,
     pub assignment: Option<Node>,
+    pub ctype_name: Option<Box<str>>,
     pub ctype: Option<CompileType>,
     pub symbol: Option<SymbolID>,
 }

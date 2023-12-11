@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use super::{
     ast::{
         AssignmentNode, BinaryOpNode, BinaryOperand, BlockNode, CallNode, DeclarationNode,
@@ -162,17 +160,17 @@ impl<'a> Parse<'a> {
         }
     }
 
-    fn get_token_value(&self, start: Token, end: Token) -> Rc<str> {
-        Rc::from(&self.scan.input[start.start..end.end])
+    fn get_token_value(&self, start: Token, end: Token) -> &str {
+        &self.scan.input[start.start..end.end]
     }
 
     fn parse_let_stmt(&mut self) -> Result<Node> {
         let start = self.consume_token(token::LET)?;
         let ident = self.consume_token(token::IDENT)?;
-        let mut ctype = None;
+        let mut ctype_name = None;
         if self.l0.kind == ':' as i32 {
             self.consume();
-            ctype = Some(self.parse_type()?);
+            ctype_name = Some(self.parse_type()?);
         }
 
         let mut end = ident;
@@ -187,14 +185,15 @@ impl<'a> Parse<'a> {
         Ok(Node::Declaration(Box::new(DeclarationNode {
             start,
             end,
-            name: self.get_token_value(ident, ident),
+            name: Box::from(self.get_token_value(ident, ident)),
             assignment,
-            ctype,
+            ctype_name,
+            ctype: None,
             symbol: None,
         })))
     }
 
-    fn parse_type(&mut self) -> Result<CompileType> {
+    fn parse_type(&mut self) -> Result<Box<str>> {
         panic!("not implemented")
     }
 
