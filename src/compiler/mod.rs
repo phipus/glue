@@ -16,6 +16,7 @@ pub mod compile;
 pub mod error;
 pub mod parse;
 pub mod scan;
+pub mod scope;
 #[cfg(test)]
 mod tests;
 pub mod typing;

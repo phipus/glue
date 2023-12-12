@@ -1,9 +1,6 @@
-use super::{
-    compile::{Node, SymbolID},
-    scan::Token,
-    typing::CompileType,
-};
+use super::{compile::Node, scan::Token, scope::SymbolID, typing::CompileType};
 
+#[derive(Clone)]
 pub struct IntNode {
     pub token: Token,
     pub as_uint: bool,
@@ -20,6 +17,7 @@ impl IntNode {
     }
 }
 
+#[derive(Clone)]
 pub struct FloatNode {
     pub token: Token,
 }
@@ -38,12 +36,14 @@ pub enum BinaryOperand {
     Div,
 }
 
+#[derive(Clone)]
 pub struct BinaryOpNode {
     pub initial: Node,
     pub expr_type: CompileType,
     pub ops: Vec<(BinaryOperand, Node)>,
 }
 
+#[derive(Clone)]
 pub struct DeclarationNode {
     pub start: Token,
     pub end: Token,
@@ -54,6 +54,7 @@ pub struct DeclarationNode {
     pub symbol: Option<SymbolID>,
 }
 
+#[derive(Clone)]
 pub struct AssignmentNode {
     pub left: Node,
     pub right: Node,
@@ -65,6 +66,7 @@ impl AssignmentNode {
     }
 }
 
+#[derive(Clone)]
 pub struct VariableNode {
     pub token: Token,
     pub symbol: Option<SymbolID>,
@@ -79,6 +81,7 @@ impl VariableNode {
     }
 }
 
+#[derive(Clone)]
 pub struct BlockNode {
     pub exprs: Vec<Node>,
     pub node_types: Vec<CompileType>,
@@ -93,6 +96,7 @@ impl BlockNode {
     }
 }
 
+#[derive(Clone)]
 pub struct CallNode {
     pub value: Node,
     pub args: Vec<Node>,

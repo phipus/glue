@@ -1,5 +1,7 @@
 use crate::rtype::RuntimeType;
 
+use super::compile::Node;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompileType {
     Unit,
@@ -35,9 +37,16 @@ impl CompileType {
 }
 
 #[derive(Clone)]
+pub struct FuncArg {
+    pub name: Box<str>,
+    pub ctype: CompileType,
+    pub default: Option<Box<Node>>,
+}
+
+#[derive(Clone)]
 pub struct FuncType {
     pub returns: CompileType,
-    pub args: Vec<CompileType>,
+    pub args: Vec<FuncArg>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -64,7 +73,7 @@ impl TypeRepo {
         &mut self.func_types[id.index]
     }
 
-    pub fn new_func(&mut self, rtype: CompileType, args: Vec<CompileType>) -> FuncID {
+    pub fn new_func(&mut self, rtype: CompileType, args: Vec<FuncArg>) -> FuncID {
         let id = FuncID {
             index: self.func_types.len(),
         };
