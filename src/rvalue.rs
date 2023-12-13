@@ -69,3 +69,13 @@ pub struct ObjectValue {
     pub fields: Box<[Value]>,
     pub rtype: *mut ObjectRuntimeType,
 }
+
+pub fn value_truethy(v: Value, t: RuntimeType) -> bool {
+    match t {
+        RuntimeType::Bool => unsafe { v.b },
+        RuntimeType::Uint => unsafe { v.u != 0 },
+        RuntimeType::Int => unsafe { v.i != 0 },
+        RuntimeType::Float => unsafe { v.f != 0.0 },
+        RuntimeType::Code | RuntimeType::InterfaceVT | RuntimeType::Object => true,
+    }
+}

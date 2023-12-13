@@ -1,8 +1,18 @@
-use std::sync::{Mutex, Arc};
+use std::sync::{Arc, Mutex};
 
 use crate::{gc::Collector, runtime::Thread};
 
 use super::compile_file;
+
+fn test_print_code(code: &str) {
+    let gc = Mutex::new(Collector::new());
+    let func = compile_file(&gc, code, "<inline>").unwrap();
+
+    let instrs = unsafe { &(*(*func).code).instrs };
+    for (i, instr) in instrs.iter().enumerate() {
+        println!("{:4}: {:?}", i, instr)
+    }
+}
 
 fn test_run_code(code: &str) {
     let gc = Mutex::new(Collector::new());
@@ -27,5 +37,18 @@ fn test_compile_variable() {
         print_float(a);
     "#;
 
+    test_run_code(code);
+}
+
+#[test]
+fn test_if_else() {
+    let code = r#"
+        if false {
+            print_float(42);
+        } else {
+            print_float(88);
+        }
+    "#;
+    test_print_code(code);
     test_run_code(code);
 }

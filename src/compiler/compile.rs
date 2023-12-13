@@ -4,8 +4,8 @@ use crate::{gc::Collector, instr::Instruction, rtype::RuntimeType, runtime::Func
 
 use super::{
     ast::{
-        AssignmentNode, BinaryOpNode, BinaryOperand, BlockNode, CallNode, DeclarationNode,
-        FloatNode, IntNode, VariableNode,
+        AssignmentNode, BinaryOpNode, BinaryOperand, BlockNode, BoolNode, CallNode,
+        DeclarationNode, FloatNode, IfElseNode, IntNode, VariableNode,
     },
     error::CompileError,
     scan::{token, Token},
@@ -29,6 +29,7 @@ pub trait NodeValueold {
 
 #[derive(Clone)]
 pub enum Node {
+    Bool(BoolNode),
     Int(IntNode),
     Float(FloatNode),
     BinaryOp(Box<BinaryOpNode>),
@@ -37,11 +38,13 @@ pub enum Node {
     Assignment(Box<AssignmentNode>),
     Block(BlockNode),
     Call(Box<CallNode>),
+    IfElse(Box<IfElseNode>),
 }
 
 impl Node {
     pub fn start_token(&self) -> Token {
         match self {
+            Self::Bool(n) => n.token,
             Self::Int(n) => n.token,
             Self::Float(n) => n.token,
             Self::BinaryOp(n) => n.initial.start_token(),
@@ -61,11 +64,13 @@ impl Node {
                 },
             },
             Self::Call(n) => n.value.end_token(),
+            Self::IfElse(n) => n.start,
         }
     }
 
     pub fn end_token(&self) -> Token {
         match self {
+            Self::Bool(n) => n.token,
             Self::Int(n) => n.token,
             Self::Float(n) => n.token,
             Self::BinaryOp(n) => match n.ops.last() {
@@ -88,6 +93,10 @@ impl Node {
                 },
             },
             Self::Call(n) => n.end,
+            Self::IfElse(n) => match &n.alt {
+                Some(alt) => alt.end_token(),
+                None => n.exprs.last().unwrap().1.end_token(),
+            },
         }
     }
 
@@ -97,6 +106,18 @@ impl Node {
         type_hint: Option<CompileType>,
     ) -> Result<CompileType> {
         match self {
+            Self::Bool(_) => {
+                if let Some(type_hint) = type_hint {
+                    if type_hint != CompileType::Bool {
+                        return Err(CompileError::TypeError(format!(
+                            "can not convert bool to {:?}",
+                            type_hint
+                        )));
+                    }
+                }
+
+                Ok(CompileType::Bool)
+            }
             Self::Int(n) => match type_hint {
                 Some(type_hint) => match type_hint {
                     CompileType::Uint => {
@@ -265,11 +286,41 @@ impl Node {
 
                 Ok(ftype.returns)
             }
+            Self::IfElse(n) => {
+                if let Some(type_hint) = type_hint {
+                    if type_hint != CompileType::Unit {
+                        return Err(CompileError::TypeError(format!(
+                            "can not convert unit to {:?}",
+                            type_hint
+                        )));
+                    }
+                }
+
+                for (expr, body) in &mut n.exprs {
+                    expr.check_type(ctx, Some(CompileType::Bool))?;
+                    body.check_type(ctx, Some(CompileType::Unit))?;
+                }
+
+                if let Some(alt) = &mut n.alt {
+                    alt.check_type(ctx, Some(CompileType::Unit))?;
+                }
+
+                Ok(CompileType::Unit)
+            }
         }
     }
 
     pub fn compile(&self, ctx: &mut CompileContext, code: &mut Vec<Instruction>) -> Result<()> {
         match self {
+            Self::Bool(n) => {
+                let b = match n.token.kind {
+                    token::TRUE => true,
+                    token::FALSE => false,
+                    _ => panic!("BoolNode with invalid token"),
+                };
+                code.push(Instruction::Bool(b));
+                Ok(())
+            }
             Self::Int(n) => {
                 let token_value = &ctx.input[n.token.start..n.token.end];
                 if n.as_uint {
@@ -448,11 +499,57 @@ impl Node {
                 }
                 _ => panic!("function pointers not implemented"),
             },
+            Self::IfElse(n) => {
+                struct Jump {
+                    pos: usize,
+                    to: usize,
+                }
+
+                let mut jumps = Vec::new();
+                let mut jump_locactions = vec![0usize];
+
+                for (expr, body) in &n.exprs {
+                    expr.compile(ctx, code)?;
+                    jumps.push(Jump {
+                        pos: code.len(),
+                        to: jump_locactions.len(),
+                    });
+                    code.push(Instruction::JumpFalse(0));
+                    body.compile(ctx, code)?;
+                    jumps.push(Jump {
+                        pos: code.len(),
+                        to: 0,
+                    });
+                    code.push(Instruction::Jump(0));
+                    jump_locactions.push(code.len());
+                }
+
+                if let Some(alt) = &n.alt {
+                    alt.compile(ctx, code)?;
+                    jump_locactions.push(code.len());
+                }
+
+                jump_locactions[0] = code.len();
+
+                // replace labels
+                for jmp in jumps {
+                    let offset = jump_locactions[jmp.to] as isize - jmp.pos as isize - 1;
+                    code[jmp.pos] = match code[jmp.pos] {
+                        Instruction::Jump(_) => Instruction::Jump(offset),
+                        Instruction::JumpTrue(_) => Instruction::JumpTrue(offset),
+                        Instruction::JumpFalse(_) => Instruction::JumpFalse(offset),
+                        instr => instr,
+                    };
+                }
+
+                Ok(())
+            }
         }
     }
 
     pub fn node_kind_str(&self) -> &'static str {
         match self {
+            Self::Bool(_) => "bool",
             Self::Int(_) => "int",
             Self::Float(_) => "float",
             Self::BinaryOp(_) => "binary op",
@@ -461,6 +558,7 @@ impl Node {
             Self::Assignment(_) => "assignment",
             Self::Block(_) => "block",
             Self::Call(_) => "call",
+            Self::IfElse(_) => "if branch",
         }
     }
 }

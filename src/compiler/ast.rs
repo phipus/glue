@@ -1,6 +1,17 @@
 use super::{compile::Node, scan::Token, scope::SymbolID, typing::CompileType};
 
 #[derive(Clone)]
+pub struct BoolNode {
+    pub token: Token,
+}
+
+impl BoolNode {
+    pub const fn new(token: Token) -> Self {
+        Self { token }
+    }
+}
+
+#[derive(Clone)]
 pub struct IntNode {
     pub token: Token,
     pub as_uint: bool,
@@ -8,7 +19,7 @@ pub struct IntNode {
 }
 
 impl IntNode {
-    pub fn new(token: Token) -> Self {
+    pub const fn new(token: Token) -> Self {
         Self {
             token,
             as_uint: false,
@@ -23,7 +34,7 @@ pub struct FloatNode {
 }
 
 impl FloatNode {
-    pub fn new(token: Token) -> Self {
+    pub const fn new(token: Token) -> Self {
         Self { token }
     }
 }
@@ -61,7 +72,7 @@ pub struct AssignmentNode {
 }
 
 impl AssignmentNode {
-    pub fn new(left: Node, right: Node) -> Self {
+    pub const fn new(left: Node, right: Node) -> Self {
         Self { left, right }
     }
 }
@@ -101,4 +112,11 @@ pub struct CallNode {
     pub value: Node,
     pub args: Vec<Node>,
     pub end: Token,
+}
+
+#[derive(Clone)]
+pub struct IfElseNode {
+    pub start: Token,
+    pub exprs: Vec<(Node, Node)>,
+    pub alt: Option<Node>,
 }

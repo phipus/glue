@@ -43,4 +43,8 @@ pub enum Instruction {
     IntToFloat,
     FloatToUint,
     FloatToInt,
+
+    Jump(isize),
+    JumpTrue(isize),
+    JumpFalse(isize),
 }

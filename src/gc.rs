@@ -200,6 +200,10 @@ pub unsafe fn mark_instructions(code: &[Instruction]) {
             Instruction::IntToFloat => (),
             Instruction::FloatToUint => (),
             Instruction::FloatToInt => (),
+
+            Instruction::Jump(_) => (),
+            Instruction::JumpTrue(_) => (),
+            Instruction::JumpFalse(_) => (),
         }
     }
 }

@@ -209,7 +209,11 @@ pub mod token {
         , LE
         , GE
         , NE
+        , TRUE
+        , FALSE
         , LET
+        , IF
+        , ELSE
     }
 }
 
@@ -337,10 +341,16 @@ lazy_static! {
         char_token('*'),
         char_token('/'),
         char_token(';'),
+        char_token('{'),
+        char_token('}'),
         str_token(">=", token::GE),
         str_token("<=", token::LE),
+        str_token("true", token::TRUE),
+        str_token("false", token::FALSE),
         str_token("let", token::LET),
-        expr_token(r"^[1-9][0-9]*$", token::INT),
+        str_token("if", token::IF),
+        str_token("else", token::ELSE),
+        expr_token(r"^(0|[1-9][0-9]*)$", token::INT),
         expr_token(r"^([1-9][0-9]*|0)\.[0-9]+$", token::FLOAT),
         expr_token(r"^[a-zA-Z_][a-zA-Z_0-9]*$", token::IDENT),
     ]);

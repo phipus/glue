@@ -41,6 +41,8 @@ pub fn compile_file<'a>(
     let frame_fields = ctx.scope.generate_frame(&ctx.trepo);
     block.compile(&mut ctx, &mut code)?;
 
+    code.push(Instruction::Ret);
+
     let func = {
         let mut gc = gc.lock().unwrap();
         let code = gc.new_code_obj(code.into_boxed_slice());

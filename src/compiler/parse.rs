@@ -1,7 +1,7 @@
 use super::{
     ast::{
         AssignmentNode, BinaryOpNode, BinaryOperand, BlockNode, CallNode, DeclarationNode,
-        FloatNode, IntNode, VariableNode,
+        FloatNode, IfElseNode, IntNode, VariableNode, BoolNode,
     },
     compile::Node,
     error::CompileError,
@@ -47,6 +47,7 @@ impl<'a> Parse<'a> {
             token::INT => Node::Int(IntNode::new(self.consume())),
             token::FLOAT => Node::Float(FloatNode::new(self.consume())),
             token::IDENT => Node::Variable(VariableNode::new(self.consume())),
+            token::TRUE | token::FALSE => Node::Bool(BoolNode::new(self.consume())),
 
             _ => return Err(self.err_unexpected_token(&self.l0)),
         };
@@ -108,15 +109,17 @@ impl<'a> Parse<'a> {
 
     pub fn parse_stmt(&mut self, with_semicolon: bool) -> Result<Node> {
         let (node, requires_semicolon) = match self.l0.kind {
-            token::LET => {
-                (self.parse_let_stmt()?, true)
-            },
+            token::LET => (self.parse_let_stmt()?, true),
+            token::IF => (self.parse_if_stmt()?, false),
             _ => {
                 let left = self.parse_expr()?;
                 if self.l0.kind == '=' as i32 {
                     self.consume();
                     let right = self.parse_expr()?;
-                    (Node::Assignment(Box::new(AssignmentNode::new(left, right))), true)
+                    (
+                        Node::Assignment(Box::new(AssignmentNode::new(left, right))),
+                        true,
+                    )
                 } else {
                     (left, true)
                 }
@@ -129,8 +132,6 @@ impl<'a> Parse<'a> {
 
         Ok(node)
     }
-
-    
 
     pub fn parse_binaryop<F: FnMut(&mut Parse) -> Result<Node>>(
         &mut self,
@@ -193,6 +194,34 @@ impl<'a> Parse<'a> {
         })))
     }
 
+    fn parse_if_stmt(&mut self) -> Result<Node> {
+        let start = self.consume_token(token::IF)?;
+        let expr = self.parse_expr()?;
+        let body = self.parse_block(BlockKind::Curly)?;
+
+        let mut exprs = vec![(expr, body)];
+        let mut alt = None;
+
+        loop {
+            if self.l0.kind != token::ELSE {
+                break;
+            }
+            self.consume();
+
+            if self.l0.kind == token::IF {
+                self.consume();
+                let expr = self.parse_expr()?;
+                let body = self.parse_block(BlockKind::Curly)?;
+                exprs.push((expr, body));
+            } else {
+                alt = Some(self.parse_block(BlockKind::Curly)?);
+                break;
+            }
+        }
+
+        Ok(Node::IfElse(Box::new(IfElseNode { start, exprs, alt })))
+    }
+
     fn parse_type(&mut self) -> Result<Box<str>> {
         panic!("not implemented")
     }
@@ -215,21 +244,9 @@ impl<'a> Parse<'a> {
                 self.consume_token('{' as i32)?;
                 while self.l0.kind != '}' as i32 {
                     let n = self.parse_stmt(true)?;
-
-                    match &n {
-                        Node::Assignment(_) | Node::Declaration(_) => {
-                            self.consume_token(';' as i32)?;
-                        }
-                        _ => {
-                            return Err(CompileError::SyntaxError(format!(
-                                "{} not allowed here",
-                                n.node_kind_str()
-                            )))
-                        }
-                    }
-
                     exprs.push(n);
                 }
+                self.consume(); // consume the '}'
 
                 Ok(Node::Block(BlockNode::new(exprs)))
             }
