@@ -5,6 +5,7 @@ use crate::{rtype::RuntimeType, runtime::Function};
 
 use super::typing::{CompileType, TypeRepo};
 
+#[derive(Clone)]
 pub struct FuncScope {
     pub parent: Option<Box<FuncScope>>,
     pub names: HashMap<Box<str>, SymbolID>,
@@ -30,10 +31,15 @@ impl FuncScope {
         }
     }
 
-    pub fn push_scope(&mut self) {
+    pub fn push_new_scope(&mut self) {
         let mut parent = Box::new(Self::new());
         std::mem::swap(self, &mut *parent);
         self.parent = Some(parent);
+    }
+
+    pub fn push_scope(&mut self, mut scope: Box<FuncScope>) {
+        std::mem::swap(self, &mut *scope);
+        self.parent = Some(scope);
     }
 
     pub fn pop_scope(&mut self) -> Option<Box<Self>> {
@@ -208,6 +214,7 @@ pub struct SymbolID {
     index: usize,
 }
 
+#[derive(Clone)]
 pub enum SymbolKind {
     Variable {
         scopeid: u32,
@@ -220,11 +227,13 @@ pub enum SymbolKind {
     Type,
 }
 
+#[derive(Clone)]
 pub struct Symbol {
     pub ctype: CompileType,
     pub kind: SymbolKind,
 }
 
+#[derive(Clone)]
 pub enum SymbolLocation {
     Local { offset: u32 },
     Function { ptr: *mut Function },

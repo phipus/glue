@@ -1,7 +1,8 @@
 use super::{
     ast::{
         AssignmentNode, BinaryOpNode, BinaryOperand, BlockNode, BoolNode, CallNode,
-        DeclarationNode, FieldNode, FloatNode, IfElseNode, IntNode, VariableNode,
+        DeclarationNode, FieldNode, FloatNode, FuncStmtNode, IdentTypeNode, IfElseNode, IntNode,
+        TypeNode, VariableNode,
     },
     compile::Node,
     error::CompileError,
@@ -230,8 +231,69 @@ impl<'a> Parse<'a> {
         Ok(Node::IfElse(Box::new(IfElseNode { start, exprs, alt })))
     }
 
-    fn parse_type(&mut self) -> Result<Box<str>> {
-        panic!("not implemented")
+    fn parse_type(&mut self) -> Result<TypeNode> {
+        match self.l0.kind {
+            token::IDENT => {
+                let start = self.consume_token(token::IDENT)?;
+                let mut items = Vec::new();
+                while self.l0.kind == '.' as i32 {
+                    self.consume();
+                    items.push(self.consume_token(token::IDENT)?)
+                }
+
+                Ok(TypeNode::Ident(IdentTypeNode { start, items }))
+            }
+            _ => Err(self.err_unexpected_token(&self.l0))
+        }
+    }
+
+    fn parse_fn_stmt(&mut self) -> Result<Node> {
+        let start = self.consume_token(token::FN)?;
+        let name = self.consume_token(token::IDENT)?;
+        let args = self.parse_fn_arg_decl()?;
+        let mut returns = None;
+
+        if self.l0.kind == ':' as i32 {
+            self.consume();
+            returns = Some(self.parse_type()?);
+        }
+
+        let body = self.parse_block(BlockKind::Curly)?;
+
+        Ok(Node::FuncStmt(Box::new(FuncStmtNode {
+            start,
+            name,
+            args,
+            returns,
+            body,
+            code: None,
+            scope: None,
+        })))
+    }
+
+    fn parse_fn_arg_decl(&mut self) -> Result<Vec<(Token, Option<TypeNode>)>> {
+        let mut args = Vec::new();
+
+        self.consume_token('(' as i32)?;
+        while self.l0.kind != ')' as i32 {
+            let name = self.consume_token(token::IDENT)?;
+            let mut argtype = None;
+            if self.l0.kind == ':' as i32 {
+                self.consume();
+                argtype = Some(self.parse_type()?);
+            }
+
+            args.push((name, argtype));
+
+            if self.l0.kind == ',' as i32 {
+                self.consume();
+            } else {
+                break;
+            }
+        }
+        self.consume_token(')' as i32)?;
+
+        Ok(args)
     }
 
     pub fn parse_block(&mut self, kind: BlockKind) -> Result<Node> {

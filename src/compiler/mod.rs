@@ -32,7 +32,7 @@ pub fn compile_file<'a>(
     let mut ctx = CompileContext::new(input, gc);
     declare_builtins(&mut ctx);
 
-    ctx.scope.push_scope();
+    ctx.scope.push_new_scope();
     
 
     let mut code = Vec::<Instruction>::new();

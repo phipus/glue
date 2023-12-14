@@ -5,12 +5,12 @@ use crate::{gc::Collector, instr::Instruction, rtype::RuntimeType, runtime::Func
 use super::{
     ast::{
         AssignmentNode, BinaryOpNode, BinaryOperand, BlockNode, BoolNode, CallNode,
-        DeclarationNode, FieldNode, FloatNode, IfElseNode, IntNode, VariableNode,
+        DeclarationNode, FieldNode, FloatNode, FuncStmtNode, IfElseNode, IntNode, VariableNode,
     },
     error::CompileError,
     scan::{token, Token},
     scope::{FuncScope, SymbolLocation},
-    typing::{CompileType, TypeRepo},
+    typing::{CompileType, FuncTypeArg, TypeRepo},
 };
 
 type Result<T> = std::result::Result<T, CompileError>;
@@ -40,6 +40,7 @@ pub enum Node {
     Call(Box<CallNode>),
     IfElse(Box<IfElseNode>),
     Field(Box<FieldNode>),
+    FuncStmt(Box<FuncStmtNode>),
 }
 
 impl Node {
@@ -67,6 +68,7 @@ impl Node {
             Self::Call(n) => n.value.end_token(),
             Self::IfElse(n) => n.start,
             Self::Field(n) => n.expr.start_token(),
+            Self::FuncStmt(n) => n.start,
         }
     }
 
@@ -100,6 +102,7 @@ impl Node {
                 None => n.exprs.last().unwrap().1.end_token(),
             },
             Self::Field(n) => n.field,
+            Self::FuncStmt(n) => n.body.end_token(),
         }
     }
 
@@ -346,10 +349,73 @@ impl Node {
                     }
                 }
             }
+            Self::FuncStmt(n) => {
+                if let Some(type_hint) = type_hint {
+                    if type_hint != CompileType::Unit {
+                        return Err(CompileError::TypeError(format!(
+                            "can not use function as {:?}",
+                            type_hint
+                        )));
+                    }
+                }
+
+                // ensure all argument types have been specified
+                let mut args = Vec::new();
+                for (argname, argtype) in &n.args {
+                    let argname_str = &ctx.input[argname.start..argname.end];
+                    args.push(FuncTypeArg {
+                        name: Some(Box::from(argname_str)),
+                        ctype: match argtype {
+                            Some(argtype) => argtype.eval(ctx)?,
+                            None => {
+                                return Err(CompileError::TypeError(format!(
+                                    "can not infer type of argument {}",
+                                    argname_str
+                                )))
+                            }
+                        },
+                        default: None,
+                    })
+                }
+
+                let rtype = match &n.returns {
+                    Some(rtype) => rtype.eval(ctx)?,
+                    None => panic!("return type inference not implemented"),
+                };
+
+                ctx.scope.push_new_scope();
+                n.body.check_type(ctx, Some(CompileType::Unit))?;
+                let mut scope = ctx.scope.pop_scope().unwrap();
+
+                let argc = args
+                    .iter()
+                    .map(|arg| arg.ctype.get_size(&ctx.trepo))
+                    .reduce(|a, b| a + b)
+                    .unwrap_or(0);
+                let retc = rtype.get_size(&ctx.trepo);
+
+                let ftype = scope.generate_frame(&ctx.trepo);
+
+                let (code, func) = unsafe {
+                    let mut gc = ctx.gc.lock().unwrap();
+                    let code = gc.new_code_obj(Box::new([]));
+                    let ftype = gc.new_frame_type(ftype.into_boxed_slice());
+                    let func = gc.new_function(code, ftype, 0, argc, retc);
+                    (code, func)
+                };
+
+                let ctype = CompileType::Func(ctx.trepo.new_func(rtype, args));
+                ctx.scope
+                    .declare_function(&ctx.input[n.name.start..n.name.end], ctype, func);
+
+                n.code = Some(code);
+                n.scope = Some(scope);
+                Ok(ctype)
+            }
         }
     }
 
-    pub fn compile(&self, ctx: &mut CompileContext, code: &mut Vec<Instruction>) -> Result<()> {
+    pub fn compile(&mut self, ctx: &mut CompileContext, code: &mut Vec<Instruction>) -> Result<()> {
         match self {
             Self::Bool(n) => {
                 let b = match n.token.kind {
@@ -413,7 +479,7 @@ impl Node {
             }
             Self::BinaryOp(n) => {
                 n.initial.compile(ctx, code)?;
-                for (op, node) in n.ops.iter() {
+                for (op, node) in &mut n.ops {
                     node.compile(ctx, code)?;
                     code.push(binary_operand_to_instr(&n.expr_type, &op)?);
                 }
@@ -421,7 +487,7 @@ impl Node {
                 Ok(())
             }
             Self::Declaration(n) => {
-                if let Some(assignment) = &n.assignment {
+                if let Some(assignment) = &mut n.assignment {
                     assignment.compile(ctx, code)?;
                     match ctx.scope.get_location(n.symbol.unwrap()) {
                         SymbolLocation::Local { offset } => {
@@ -504,7 +570,7 @@ impl Node {
                 _ => panic!("can not assign {}", n.left.node_kind_str()),
             },
             Self::Block(n) => {
-                for (i, child) in n.exprs.iter().enumerate() {
+                for (i, child) in n.exprs.iter_mut().enumerate() {
                     child.compile(ctx, code)?;
                     let type_size = n.node_types[i].get_size(&ctx.trepo);
                     for _ in 0..type_size {
@@ -521,7 +587,7 @@ impl Node {
                     match ctx.scope.get_location(sym_id) {
                         SymbolLocation::Function { ptr } => {
                             let ptr = *ptr;
-                            for arg in &n.args {
+                            for arg in &mut n.args {
                                 arg.compile(ctx, code)?;
                             }
                             code.push(Instruction::Call(ptr));
@@ -547,7 +613,7 @@ impl Node {
                 let mut jumps = Vec::new();
                 let mut jump_locactions = vec![0usize];
 
-                for (expr, body) in &n.exprs {
+                for (expr, body) in &mut n.exprs {
                     expr.compile(ctx, code)?;
                     jumps.push(Jump {
                         pos: code.len(),
@@ -563,7 +629,7 @@ impl Node {
                     jump_locactions.push(code.len());
                 }
 
-                if let Some(alt) = &n.alt {
+                if let Some(alt) = &mut n.alt {
                     alt.compile(ctx, code)?;
                     jump_locactions.push(code.len());
                 }
@@ -600,6 +666,19 @@ impl Node {
 
                 Ok(())
             }
+
+            Self::FuncStmt(n) => {
+                ctx.scope.push_scope(n.scope.take().unwrap());
+                let mut code = Vec::new();
+                n.body.compile(ctx, &mut code)?;
+                n.scope = ctx.scope.pop_scope();
+
+                unsafe {
+                    (*n.code.unwrap()).instrs = code.into_boxed_slice();
+                }
+
+                Ok(())
+            }
         }
     }
 
@@ -616,6 +695,7 @@ impl Node {
             Self::Call(_) => "call",
             Self::IfElse(_) => "if branch",
             Self::Field(_) => "field access",
+            Self::FuncStmt(_) => "function stmt",
         }
     }
 }

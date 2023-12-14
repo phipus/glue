@@ -136,7 +136,7 @@ impl<'a> Scan<'a> {
 
         while let Some(ch) = self.l0 {
             match ch.value {
-                '{' | '}' | '[' | ']' | '(' | ')' | '.' | ';' => {
+                '{' | '}' | '[' | ']' | '(' | ')' | '.' | ';' | ':' => {
                     // breaking character
                     if start.start == ch.start {
                         self.l0 = self.chars.next();
@@ -353,6 +353,7 @@ lazy_static! {
         char_token('{'),
         char_token('}'),
         char_token('.'),
+        char_token(':'),
         str_token(">=", token::GE),
         str_token("<=", token::LE),
         str_token("true", token::TRUE),

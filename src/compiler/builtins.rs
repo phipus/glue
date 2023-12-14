@@ -2,7 +2,7 @@ use crate::builtins;
 
 use super::{
     compile::CompileContext,
-    typing::{CompileType, FuncArg},
+    typing::{CompileType, FuncTypeArg},
 };
 
 pub fn declare_builtins(ctx: &mut CompileContext) {
@@ -13,8 +13,8 @@ pub fn declare_builtins(ctx: &mut CompileContext) {
 
     let print_float_type = ctx.trepo.new_func(
         CompileType::Unit,
-        vec![FuncArg {
-            name: Box::from("f"),
+        vec![FuncTypeArg {
+            name: Some(Box::from("f")),
             ctype: CompileType::Float,
             default: None,
         }],

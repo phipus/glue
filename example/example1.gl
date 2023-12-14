@@ -2,17 +2,17 @@ let a = 2.0 + 2.0 / 4.0
 print_float(a)
 
 class Car {
-    pub let brand String;
-    pub let model String;
-    var odo float;
+    pub let brand: String;
+    pub let model: String;
+    var odo: float;
 
-    pub new(brand String, model String) {
+    pub new(brand: String, model: String) {
         this.brand = brand;
         this.model = model;
         this.odo = 0.0;
     }
 
-    pub fn drive(dist float) {
+    pub fn drive(dist: float) {
         odo += dist
     }
 
@@ -21,7 +21,7 @@ class Car {
     }
 }
 
-fn newCar(brand String, model String) Car {
+fn newCar(brand: String, model: String) Car {
     return Car {
         brand: brand,
         model: model,
