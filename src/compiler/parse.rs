@@ -306,6 +306,7 @@ mod tests {
             builtins = Builtins::new(&mut gc);
 
             code.push(Instruction::Call(builtins.print_float));
+            code.push(Instruction::Ret);
 
             code_obj = gc.new_code_obj(code.into_boxed_slice());
             ftype = gc.new_frame_type(field_types.into_boxed_slice());

@@ -214,6 +214,7 @@ pub mod token {
         , LET
         , IF
         , ELSE
+        , FN
     }
 }
 
@@ -251,9 +252,20 @@ fn can_before_equals(c: char) -> bool {
     }
 }
 
-trait ParseToken {
-    fn kind(&self) -> i32;
-    fn is_match(&self, s: &str) -> bool;
+enum ParseToken {
+    Char(CharParseToken),
+    String(StringParseToken),
+    Regex(RegexParseToken),
+}
+
+impl ParseToken {
+    pub fn try_match(&self, s: &str) -> Option<i32> {
+        match self {
+            Self::Char(t) => t.try_match(s),
+            Self::String(t) => t.try_match(s),
+            Self::Regex(t) => t.try_match(s),
+        }
+    }
 }
 
 struct RegexParseToken {
@@ -261,13 +273,12 @@ struct RegexParseToken {
     kind: i32,
 }
 
-impl ParseToken for RegexParseToken {
-    fn is_match(&self, s: &str) -> bool {
-        self.expr.is_match(s)
-    }
-
-    fn kind(&self) -> i32 {
-        self.kind
+impl RegexParseToken {
+    pub fn try_match(&self, s: &str) -> Option<i32> {
+        match self.expr.is_match(s) {
+            true => Some(self.kind),
+            false => None,
+        }
     }
 }
 
@@ -276,13 +287,12 @@ struct StringParseToken {
     kind: i32,
 }
 
-impl ParseToken for StringParseToken {
-    fn is_match(&self, s: &str) -> bool {
-        s == self.str
-    }
-
-    fn kind(&self) -> i32 {
-        self.kind
+impl StringParseToken {
+    pub fn try_match(&self, s: &str) -> Option<i32> {
+        match self.str == s {
+            true => Some(self.kind),
+            false => None,
+        }
     }
 }
 
@@ -292,33 +302,32 @@ struct CharParseToken {
     len: usize,
 }
 
-impl ParseToken for CharParseToken {
-    fn is_match(&self, s: &str) -> bool {
-        s.as_bytes() == &self.bytes[..self.len]
-    }
-
-    fn kind(&self) -> i32 {
-        self.kind
+impl CharParseToken {
+    pub fn try_match(&self, s: &str) -> Option<i32> {
+        match s.as_bytes() == &self.bytes[..self.len] {
+            true => Some(self.kind),
+            false => None,
+        }
     }
 }
 
-fn expr_token(expr: &str, kind: i32) -> Box<dyn ParseToken + Sync> {
-    Box::new(RegexParseToken {
+fn expr_token(expr: &str, kind: i32) -> ParseToken {
+    ParseToken::Regex(RegexParseToken {
         expr: Regex::new(expr).unwrap(),
         kind,
     })
 }
 
-fn str_token(str: &'static str, kind: i32) -> Box<dyn ParseToken + Sync> {
-    Box::new(StringParseToken { str, kind })
+fn str_token(str: &'static str, kind: i32) -> ParseToken {
+    ParseToken::String(StringParseToken { str, kind })
 }
 
-fn char_token(c: char) -> Box<dyn ParseToken + Sync> {
+fn char_token(c: char) -> ParseToken {
     let mut bytes = [0u8; 4];
     let s = c.encode_utf8(&mut bytes);
     let len = s.len();
 
-    Box::new(CharParseToken {
+    ParseToken::Char(CharParseToken {
         bytes,
         kind: c as i32,
         len,
@@ -326,7 +335,7 @@ fn char_token(c: char) -> Box<dyn ParseToken + Sync> {
 }
 
 lazy_static! {
-    static ref TOKEN_EXPRS: Box<[Box<dyn ParseToken + Sync>]> = Box::new([
+    static ref TOKEN_EXPRS: Box<[ParseToken]> = Box::new([
         char_token('<'),
         char_token('>'),
         char_token('['),
@@ -351,6 +360,7 @@ lazy_static! {
         str_token("let", token::LET),
         str_token("if", token::IF),
         str_token("else", token::ELSE),
+        str_token("fn", token::FN),
         expr_token(r"^(0|[1-9][0-9]*)$", token::INT),
         expr_token(r"^([1-9][0-9]*|0)\.[0-9]+$", token::FLOAT),
         expr_token(r"^[a-zA-Z_][a-zA-Z_0-9]*$", token::IDENT),
@@ -359,8 +369,9 @@ lazy_static! {
 
 fn get_token_kind(value: &str) -> i32 {
     for pt in TOKEN_EXPRS.iter() {
-        if pt.is_match(value) {
-            return pt.kind();
+        match pt.try_match(value) {
+            Some(kind) => return kind,
+            None => (),
         }
     }
     return token::ERROR;
