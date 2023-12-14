@@ -75,6 +75,8 @@ impl Thread {
         let mut fp;
         (code, code_offset, fp) = self.get_code_and_fp();
 
+        let mut last_field = None;
+
         loop {
             let instr = code[code_offset];
             code_offset += 1;
@@ -94,7 +96,7 @@ impl Thread {
                 }
                 Instruction::InterfaceVT(_) => todo!(),
                 Instruction::Code(_) => todo!(),
-                Instruction::PushLocal((offset, rtype)) => {
+                Instruction::PushLocal(offset, rtype) => {
                     self.eval_stack
                         .push((self.locals[fp + offset as usize], rtype));
                 }
@@ -102,16 +104,23 @@ impl Thread {
                     None => (),
                     Some((v, _)) => self.locals[fp + offset as usize] = v,
                 },
-                Instruction::GetField((offset, rtype)) => {
+                Instruction::GetField(offset, rtype) => {
                     match self.eval_stack.pop() {
                         Some((v, _)) => {
                             // assert_eq!(t, RuntimeType::Object);
+                            last_field = Some(v);
                             self.eval_stack
                                 .push(((*v.o).fields[offset as usize], rtype));
                         }
                         None => (),
                     }
                 }
+                Instruction::GetNextField(offset, rtype) => match last_field {
+                    None => (),
+                    Some(v) => self
+                        .eval_stack
+                        .push(((*v.o).fields[offset as usize], rtype)),
+                },
                 Instruction::SetField(offset) => match self.eval_stack.pop() {
                     None => (),
                     Some((v, _)) => match self.eval_stack.last() {

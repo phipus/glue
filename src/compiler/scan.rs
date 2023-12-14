@@ -343,6 +343,7 @@ lazy_static! {
         char_token(';'),
         char_token('{'),
         char_token('}'),
+        char_token('.'),
         str_token(">=", token::GE),
         str_token("<=", token::LE),
         str_token("true", token::TRUE),

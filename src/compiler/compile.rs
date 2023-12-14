@@ -5,7 +5,7 @@ use crate::{gc::Collector, instr::Instruction, rtype::RuntimeType, runtime::Func
 use super::{
     ast::{
         AssignmentNode, BinaryOpNode, BinaryOperand, BlockNode, BoolNode, CallNode,
-        DeclarationNode, FloatNode, IfElseNode, IntNode, VariableNode,
+        DeclarationNode, FieldNode, FloatNode, IfElseNode, IntNode, VariableNode,
     },
     error::CompileError,
     scan::{token, Token},
@@ -39,6 +39,7 @@ pub enum Node {
     Block(BlockNode),
     Call(Box<CallNode>),
     IfElse(Box<IfElseNode>),
+    Field(Box<FieldNode>),
 }
 
 impl Node {
@@ -65,6 +66,7 @@ impl Node {
             },
             Self::Call(n) => n.value.end_token(),
             Self::IfElse(n) => n.start,
+            Self::Field(n) => n.expr.start_token(),
         }
     }
 
@@ -97,6 +99,7 @@ impl Node {
                 Some(alt) => alt.end_token(),
                 None => n.exprs.last().unwrap().1.end_token(),
             },
+            Self::Field(n) => n.field,
         }
     }
 
@@ -307,6 +310,42 @@ impl Node {
 
                 Ok(CompileType::Unit)
             }
+            Self::Field(n) => {
+                let ctype = n.expr.check_type(ctx, None)?;
+                match ctype {
+                    CompileType::Object(obj_id) => {
+                        let otype = ctx.trepo.get_object(obj_id);
+                        let field_name = &ctx.input[n.field.start..n.field.end];
+                        match otype.get_field_by_name(field_name) {
+                            None => {
+                                return Err(CompileError::TypeError(format!(
+                                    "object has no field {}",
+                                    field_name
+                                )))
+                            }
+                            Some(field) => {
+                                if let Some(type_hint) = type_hint {
+                                    if type_hint != field.ctype {
+                                        return Err(CompileError::TypeError(format!(
+                                            "can not convert field {} ({:?}) to {:?}",
+                                            field_name, field.ctype, type_hint
+                                        )));
+                                    }
+                                }
+                                n.info = Some(field);
+
+                                Ok(field.ctype)
+                            }
+                        }
+                    }
+                    _ => {
+                        return Err(CompileError::TypeError(format!(
+                            "{:?} has not properties",
+                            ctype
+                        )))
+                    }
+                }
+            }
         }
     }
 
@@ -420,7 +459,7 @@ impl Node {
                 match ctx.scope.get_location(n.symbol.unwrap()) {
                     SymbolLocation::Local { offset } => {
                         for (i, field) in fields.into_iter().enumerate() {
-                            code.push(Instruction::PushLocal((*offset + i as u32, field)));
+                            code.push(Instruction::PushLocal(*offset + i as u32, field));
                         }
                     }
                     SymbolLocation::Function { ptr: _ } => {
@@ -544,6 +583,23 @@ impl Node {
 
                 Ok(())
             }
+            Self::Field(n) => {
+                let mut fields = Vec::new();
+                let field = n.info.unwrap();
+                field.ctype.fields(&mut fields, &ctx.trepo);
+
+                if fields.len() > 0 {
+                    code.push(Instruction::GetField(field.offset, fields[0]));
+                }
+                for i in 1..fields.len() {
+                    code.push(Instruction::GetNextField(
+                        field.offset + i as u32,
+                        fields[i],
+                    ));
+                }
+
+                Ok(())
+            }
         }
     }
 
@@ -559,6 +615,7 @@ impl Node {
             Self::Block(_) => "block",
             Self::Call(_) => "call",
             Self::IfElse(_) => "if branch",
+            Self::Field(_) => "field access",
         }
     }
 }

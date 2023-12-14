@@ -1,7 +1,7 @@
 use super::{
     ast::{
-        AssignmentNode, BinaryOpNode, BinaryOperand, BlockNode, CallNode, DeclarationNode,
-        FloatNode, IfElseNode, IntNode, VariableNode, BoolNode,
+        AssignmentNode, BinaryOpNode, BinaryOperand, BlockNode, BoolNode, CallNode,
+        DeclarationNode, FieldNode, FloatNode, IfElseNode, IntNode, VariableNode,
     },
     compile::Node,
     error::CompileError,
@@ -77,6 +77,14 @@ impl<'a> Parse<'a> {
                 value: atom,
                 args,
                 end,
+            })))
+        } else if self.l0.kind == '.' as i32 {
+            self.consume();
+            let ident = self.consume_token(token::IDENT)?;
+            Ok(Node::Field(Box::new(FieldNode {
+                expr: atom,
+                field: ident,
+                info: None,
             })))
         } else {
             Ok(atom)

@@ -1,4 +1,9 @@
-use super::{compile::Node, scan::Token, scope::SymbolID, typing::CompileType};
+use super::{
+    compile::Node,
+    scan::Token,
+    scope::SymbolID,
+    typing::{CompileType, FieldInfo},
+};
 
 #[derive(Clone)]
 pub struct BoolNode {
@@ -119,4 +124,11 @@ pub struct IfElseNode {
     pub start: Token,
     pub exprs: Vec<(Node, Node)>,
     pub alt: Option<Node>,
+}
+
+#[derive(Clone)]
+pub struct FieldNode {
+    pub expr: Node,
+    pub field: Token,
+    pub info: Option<FieldInfo>,
 }
