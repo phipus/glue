@@ -5,7 +5,8 @@ use crate::{gc::Collector, instr::Instruction, rtype::RuntimeType, runtime::Func
 use super::{
     ast::{
         AssignmentNode, BinaryOpNode, BinaryOperand, BlockNode, BoolNode, CallNode,
-        DeclarationNode, FieldNode, FloatNode, FuncStmtNode, IfElseNode, IntNode, VariableNode,
+        DeclarationNode, FieldNode, FloatNode, FuncStmtNode, IfElseNode, IntNode, ReturnNode,
+        UnaryNode, UnaryOP, VariableNode,
     },
     error::CompileError,
     scan::{token, Token},
@@ -27,7 +28,7 @@ pub trait NodeValueold {
     fn compile(&self, ctx: &mut CompileContext, code: &mut Vec<Instruction>) -> Result<()>;
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Node {
     Bool(BoolNode),
     Int(IntNode),
@@ -41,6 +42,8 @@ pub enum Node {
     IfElse(Box<IfElseNode>),
     Field(Box<FieldNode>),
     FuncStmt(Box<FuncStmtNode>),
+    Return(Box<ReturnNode>),
+    Unary(Box<UnaryNode>),
 }
 
 impl Node {
@@ -69,6 +72,8 @@ impl Node {
             Self::IfElse(n) => n.start,
             Self::Field(n) => n.expr.start_token(),
             Self::FuncStmt(n) => n.start,
+            Self::Return(n) => n.start,
+            Self::Unary(n) => n.start,
         }
     }
 
@@ -103,6 +108,11 @@ impl Node {
             },
             Self::Field(n) => n.field,
             Self::FuncStmt(n) => n.body.end_token(),
+            Self::Return(n) => match &n.value {
+                Some(v) => v.end_token(),
+                None => n.start,
+            },
+            Self::Unary(n) => n.atom.end_token(),
         }
     }
 
@@ -154,13 +164,25 @@ impl Node {
                 None => Ok(CompileType::Float),
             },
             Self::BinaryOp(n) => {
-                let expr_type = n.initial.check_type(ctx, type_hint)?;
-                n.expr_type = expr_type;
+                let mut expr_types = Vec::new();
+                let mut expr_type = n.initial.check_type(ctx, None)?;
 
-                for (_, node) in n.ops.iter_mut() {
+                for (op, node) in n.ops.iter_mut() {
                     node.check_type(ctx, Some(expr_type))?;
+                    expr_types.push(expr_type);
+                    expr_type = binary_operand_to_type(expr_type, *op);
                 }
 
+                if let Some(type_hint) = type_hint {
+                    if expr_type != type_hint {
+                        return Err(CompileError::TypeError(format!(
+                            "can not convert {:?} to {:?}",
+                            expr_type, type_hint
+                        )));
+                    }
+                }
+
+                n.expr_types = expr_types;
                 Ok(expr_type)
             }
             Self::Declaration(n) => {
@@ -242,21 +264,30 @@ impl Node {
                 ))),
             },
             Self::Block(n) => {
+                let mut first_never = None;
+                for child in &mut n.exprs {
+                    let ctype = child.check_type(ctx, None)?;
+                    if ctype == CompileType::Never && first_never.is_none() {
+                        first_never = Some(n.node_types.len());
+                    }
+                    n.node_types.push(ctype);
+                }
+
+                let ctype = match first_never {
+                    Some(_) => CompileType::Never,
+                    None => CompileType::Unit,
+                };
+
                 if let Some(type_hint) = type_hint {
-                    if type_hint != CompileType::Unit {
+                    if !ctype.is_assignable_to(type_hint, &ctx.trepo) {
                         return Err(CompileError::TypeError(format!(
-                            "can not convert block to {:?}",
+                            "can not convert block to {:?}, missing return?",
                             type_hint
                         )));
                     }
                 }
 
-                for child in &mut n.exprs {
-                    let ctype = child.check_type(ctx, None)?;
-                    n.node_types.push(ctype);
-                }
-
-                Ok(CompileType::Unit)
+                Ok(ctype)
             }
             Self::Call(n) => {
                 let typ = n.value.check_type(ctx, None)?;
@@ -293,8 +324,30 @@ impl Node {
                 Ok(ftype.returns)
             }
             Self::IfElse(n) => {
+                let mut is_never = true;
+
+                for (expr, body) in &mut n.exprs {
+                    expr.check_type(ctx, Some(CompileType::Bool))?;
+                    let rtype = body.check_type(ctx, Some(CompileType::Unit))?;
+                    if rtype != CompileType::Never {
+                        is_never = false;
+                    }
+                }
+
+                if let Some(alt) = &mut n.alt {
+                    let rtype = alt.check_type(ctx, Some(CompileType::Unit))?;
+                    if rtype != CompileType::Never {
+                        is_never = false;
+                    }
+                }
+
+                let rtype = match is_never {
+                    true => CompileType::Never,
+                    false => CompileType::Unit,
+                };
+
                 if let Some(type_hint) = type_hint {
-                    if type_hint != CompileType::Unit {
+                    if !rtype.is_assignable_to(type_hint, &ctx.trepo) {
                         return Err(CompileError::TypeError(format!(
                             "can not convert unit to {:?}",
                             type_hint
@@ -302,16 +355,7 @@ impl Node {
                     }
                 }
 
-                for (expr, body) in &mut n.exprs {
-                    expr.check_type(ctx, Some(CompileType::Bool))?;
-                    body.check_type(ctx, Some(CompileType::Unit))?;
-                }
-
-                if let Some(alt) = &mut n.alt {
-                    alt.check_type(ctx, Some(CompileType::Unit))?;
-                }
-
-                Ok(CompileType::Unit)
+                Ok(rtype)
             }
             Self::Field(n) => {
                 let ctype = n.expr.check_type(ctx, None)?;
@@ -378,14 +422,50 @@ impl Node {
                     })
                 }
 
-                let rtype = match &n.returns {
-                    Some(rtype) => rtype.eval(ctx)?,
-                    None => panic!("return type inference not implemented"),
+                let rtype_hint = match &n.returns {
+                    Some(rtype) => Some(rtype.eval(ctx)?),
+                    None => None,
                 };
 
+                // begin a new scope
                 ctx.scope.push_new_scope();
-                n.body.check_type(ctx, Some(CompileType::Unit))?;
+
+                let outer_return_ctx = ctx.return_context.take();
+                ctx.return_context = Some(ReturnContext { rtype: rtype_hint });
+
+                // declare the arguments
+                for arg in &args {
+                    ctx.scope
+                        .declare_variable(arg.name.as_ref().unwrap(), arg.ctype);
+                }
+
+                let body_rtype = n.body.check_type(ctx, Some(CompileType::Unit))?;
+
+                let rtype = match &ctx.return_context.as_ref().unwrap().rtype {
+                    None => {
+                        ctx.return_context.as_mut().unwrap().rtype = Some(CompileType::Unit);
+                        CompileType::Unit
+                    }
+                    Some(x) => *x,
+                };
+
                 let mut scope = ctx.scope.pop_scope().unwrap();
+                ctx.return_context = outer_return_ctx;
+
+                match body_rtype {
+                    CompileType::Unit => {
+                        if rtype == CompileType::Unit {
+                            n.implicit_return = true;
+                        } else {
+                            return Err(CompileError::TypeError(format!(
+                                "missing return in function with return value"
+                            )));
+                        }
+                    }
+                    CompileType::Never => (),
+
+                    _ => panic!("function body evaluates to invalid type"),
+                }
 
                 let argc = args
                     .iter()
@@ -410,6 +490,58 @@ impl Node {
 
                 n.code = Some(code);
                 n.scope = Some(scope);
+                Ok(CompileType::Unit)
+            }
+            Self::Return(n) => {
+                if let Some(type_hint) = type_hint {
+                    if (CompileType::Never).is_assignable_to(type_hint, &ctx.trepo) {
+                        return Err(CompileError::TypeError(format!(
+                            "can not convert never to {:?}",
+                            type_hint
+                        )));
+                    }
+                }
+
+                if ctx.return_context.is_none() {
+                    return Err(CompileError::SyntaxError(format!(
+                        "unexpected return statement"
+                    )));
+                }
+
+                let rtype = match &mut n.value {
+                    None => CompileType::Unit,
+                    Some(n) => {
+                        let rtype = ctx.return_context.as_ref().unwrap().rtype;
+                        n.check_type(ctx, rtype)?
+                    }
+                };
+
+                if ctx.return_context.as_ref().unwrap().rtype.is_none() {
+                    ctx.return_context.as_mut().unwrap().rtype = Some(rtype);
+                }
+
+                Ok(CompileType::Never)
+            }
+            Self::Unary(n) => {
+                let ctype = n.atom.check_type(ctx, type_hint)?;
+                for op in n.ops.iter().rev() {
+                    match (op, ctype) {
+                        (UnaryOP::Plus, CompileType::Uint) => (),
+                        (UnaryOP::Plus | UnaryOP::Minus, CompileType::Int | CompileType::Float) => {
+                            ()
+                        }
+                        (UnaryOP::Not, CompileType::Bool) => (),
+                        _ => {
+                            return Err(CompileError::TypeError(format!(
+                                "{:?} is not implemented for {:?}",
+                                op, ctype
+                            )))
+                        }
+                    }
+                }
+
+                n.ctype = Some(ctype);
+
                 Ok(ctype)
             }
         }
@@ -479,9 +611,9 @@ impl Node {
             }
             Self::BinaryOp(n) => {
                 n.initial.compile(ctx, code)?;
-                for (op, node) in &mut n.ops {
+                for (i, (op, node)) in n.ops.iter_mut().enumerate() {
                     node.compile(ctx, code)?;
-                    code.push(binary_operand_to_instr(&n.expr_type, &op)?);
+                    code.push(binary_operand_to_instr(n.expr_types[i], *op)?);
                 }
 
                 Ok(())
@@ -671,10 +803,39 @@ impl Node {
                 ctx.scope.push_scope(n.scope.take().unwrap());
                 let mut code = Vec::new();
                 n.body.compile(ctx, &mut code)?;
+                if n.implicit_return {
+                    code.push(Instruction::Ret);
+                }
                 n.scope = ctx.scope.pop_scope();
 
                 unsafe {
                     (*n.code.unwrap()).instrs = code.into_boxed_slice();
+                }
+
+                Ok(())
+            }
+            Self::Return(n) => {
+                if let Some(value) = &mut n.value {
+                    value.compile(ctx, code)?;
+                }
+                code.push(Instruction::Ret);
+                Ok(())
+            }
+            Self::Unary(n) => {
+                n.atom.compile(ctx, code)?;
+                let ctype = n.ctype.unwrap();
+
+                for op in n.ops.iter().rev() {
+                    match (op, ctype) {
+                        (
+                            UnaryOP::Plus,
+                            CompileType::Uint | CompileType::Int | CompileType::Float,
+                        ) => (),
+                        (UnaryOP::Minus, CompileType::Int) => code.push(Instruction::NegInt),
+                        (UnaryOP::Minus, CompileType::Float) => code.push(Instruction::NegFloat),
+                        (UnaryOP::Not, CompileType::Bool) => code.push(Instruction::NegBool),
+                        _ => panic!("unary op not implemented"),
+                    }
                 }
 
                 Ok(())
@@ -696,11 +857,25 @@ impl Node {
             Self::IfElse(_) => "if branch",
             Self::Field(_) => "field access",
             Self::FuncStmt(_) => "function stmt",
+            Self::Return(_) => "return",
+            Self::Unary(_) => "unary op",
         }
     }
 }
 
-fn binary_operand_to_instr(t: &CompileType, op: &BinaryOperand) -> Result<Instruction> {
+fn binary_operand_to_type(t: CompileType, op: BinaryOperand) -> CompileType {
+    match op {
+        BinaryOperand::Gt
+        | BinaryOperand::Ge
+        | BinaryOperand::Eq
+        | BinaryOperand::Ne
+        | BinaryOperand::Le
+        | BinaryOperand::Lt => CompileType::Bool,
+        _ => t,
+    }
+}
+
+fn binary_operand_to_instr(t: CompileType, op: BinaryOperand) -> Result<Instruction> {
     match op {
         BinaryOperand::Add => match t {
             CompileType::Uint => return Ok(Instruction::UintAddUint),
@@ -726,11 +901,49 @@ fn binary_operand_to_instr(t: &CompileType, op: &BinaryOperand) -> Result<Instru
             CompileType::Float => return Ok(Instruction::FloatDivFloat),
             _ => (),
         },
+        BinaryOperand::Gt => match t {
+            CompileType::Uint => return Ok(Instruction::UintGtUint),
+            CompileType::Int => return Ok(Instruction::IntGtInt),
+            CompileType::Float => return Ok(Instruction::FloatGtFloat),
+            _ => (),
+        },
+        BinaryOperand::Ge => match t {
+            CompileType::Uint => return Ok(Instruction::UintGeUint),
+            CompileType::Int => return Ok(Instruction::IntGeInt),
+            CompileType::Float => return Ok(Instruction::FloatGeFloat),
+            _ => (),
+        },
+        BinaryOperand::Eq => match t {
+            CompileType::Uint => return Ok(Instruction::UintEqUint),
+            CompileType::Int => return Ok(Instruction::IntEqInt),
+            CompileType::Float => return Ok(Instruction::FloatEqFloat),
+            CompileType::Bool => return Ok(Instruction::BoolEqBool),
+            _ => (),
+        },
+        BinaryOperand::Ne => match t {
+            CompileType::Uint => return Ok(Instruction::UintNeUint),
+            CompileType::Int => return Ok(Instruction::IntNeInt),
+            CompileType::Float => return Ok(Instruction::FloatNeFloat),
+            CompileType::Bool => return Ok(Instruction::BoolNeBool),
+            _ => (),
+        },
+        BinaryOperand::Le => match t {
+            CompileType::Uint => return Ok(Instruction::UintLeUint),
+            CompileType::Int => return Ok(Instruction::IntLeInt),
+            CompileType::Float => return Ok(Instruction::FloatLeFloat),
+            _ => (),
+        },
+        BinaryOperand::Lt => match t {
+            CompileType::Uint => return Ok(Instruction::UintLtUint),
+            CompileType::Int => return Ok(Instruction::IntLtInt),
+            CompileType::Float => return Ok(Instruction::FloatLtFloat),
+            _ => (),
+        },
     }
 
     Err(CompileError::TypeError(format!(
         "{:?} is not implemented for {:?}",
-        t, op
+        op, t
     )))
 }
 
@@ -740,6 +953,7 @@ pub struct CompileContext<'a> {
     pub functions: Vec<*mut Function>,
     pub gc: &'a Mutex<Collector>,
     pub trepo: TypeRepo,
+    pub return_context: Option<ReturnContext>,
 }
 
 impl<'a> CompileContext<'a> {
@@ -750,6 +964,17 @@ impl<'a> CompileContext<'a> {
             functions: Vec::new(),
             gc,
             trepo: TypeRepo::new(),
+            return_context: None,
         }
+    }
+}
+
+pub struct ReturnContext {
+    pub rtype: Option<CompileType>,
+}
+
+impl ReturnContext {
+    pub const fn new(rtype: Option<CompileType>) -> Self {
+        Self { rtype }
     }
 }

@@ -1,7 +1,7 @@
 use crate::{
     rtype::{ObjectRuntimeType, RuntimeType},
     runtime::Function,
-    rvalue::{CodeValue, InterfaceVTValue, Value},
+    rvalue::{CodeValue, InterfaceVTValue, TypedValue, Value},
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -20,23 +20,46 @@ pub enum Instruction {
     SetField(u32),
     PopDiscard,
     Call(*mut Function),
-    NativeCall(fn(locals: &mut [Value], eval_stack: &mut Vec<(Value, RuntimeType)>)),
+    NativeCall(fn(locals: &mut [Value], eval_stack: &mut Vec<TypedValue>)),
     Ret,
 
     BoolAndBool,
     BoolOrBool,
+    BoolEqBool,
+    BoolNeBool,
+
     UintAddUint,
     UintSubUint,
     UintMulUint,
     UintDivUint,
+    UintGtUint,
+    UintGeUint,
+    UintEqUint,
+    UintNeUint,
+    UintLeUint,
+    UintLtUint,
+
     IntAddInt,
     IntSubInt,
     IntMulInt,
     IntDivInt,
+    IntGtInt,
+    IntGeInt,
+    IntEqInt,
+    IntNeInt,
+    IntLeInt,
+    IntLtInt,
+
     FloatAddFloat,
     FloatSubFloat,
     FloatMulFloat,
     FloatDivFloat,
+    FloatGtFloat,
+    FloatGeFloat,
+    FloatEqFloat,
+    FloatNeFloat,
+    FloatLeFloat,
+    FloatLtFloat,
 
     UintToInt,
     UintToFloat,
@@ -44,6 +67,10 @@ pub enum Instruction {
     IntToFloat,
     FloatToUint,
     FloatToInt,
+
+    NegInt,
+    NegFloat,
+    NegBool,
 
     Jump(isize),
     JumpTrue(isize),

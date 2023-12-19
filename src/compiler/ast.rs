@@ -1,4 +1,4 @@
-use crate::{runtime::Function, rvalue::CodeValue};
+use crate::rvalue::CodeValue;
 
 use super::{
     compile::{CompileContext, Node},
@@ -8,7 +8,7 @@ use super::{
     typing::{CompileType, FieldInfo, FuncTypeArg},
 };
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct BoolNode {
     pub token: Token,
 }
@@ -19,7 +19,7 @@ impl BoolNode {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct IntNode {
     pub token: Token,
     pub as_uint: bool,
@@ -36,7 +36,7 @@ impl IntNode {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct FloatNode {
     pub token: Token,
 }
@@ -53,16 +53,22 @@ pub enum BinaryOperand {
     Sub,
     Mul,
     Div,
+    Gt,
+    Ge,
+    Eq,
+    Ne,
+    Le,
+    Lt,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct BinaryOpNode {
     pub initial: Node,
-    pub expr_type: CompileType,
+    pub expr_types: Vec<CompileType>,
     pub ops: Vec<(BinaryOperand, Node)>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DeclarationNode {
     pub start: Token,
     pub end: Token,
@@ -73,7 +79,7 @@ pub struct DeclarationNode {
     pub symbol: Option<SymbolID>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct AssignmentNode {
     pub left: Node,
     pub right: Node,
@@ -85,7 +91,7 @@ impl AssignmentNode {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct VariableNode {
     pub token: Token,
     pub symbol: Option<SymbolID>,
@@ -100,7 +106,7 @@ impl VariableNode {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct BlockNode {
     pub exprs: Vec<Node>,
     pub node_types: Vec<CompileType>,
@@ -115,28 +121,28 @@ impl BlockNode {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct CallNode {
     pub value: Node,
     pub args: Vec<Node>,
     pub end: Token,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct IfElseNode {
     pub start: Token,
     pub exprs: Vec<(Node, Node)>,
     pub alt: Option<Node>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct FieldNode {
     pub expr: Node,
     pub field: Token,
     pub info: Option<FieldInfo>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum TypeNode {
     Ident(IdentTypeNode),
     Fn(Box<FuncTypeNode>),
@@ -147,7 +153,7 @@ impl TypeNode {
         match self {
             Self::Ident(n) => {
                 let name = &ctx.input[n.start.start..n.start.end];
-                let mut symbol_id = match ctx.scope.lookup(name) {
+                let symbol_id = match ctx.scope.lookup(name) {
                     None => {
                         return Err(CompileError::NameError(format!("{} is not defined", name)))
                     }
@@ -185,19 +191,19 @@ impl TypeNode {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct IdentTypeNode {
     pub start: Token,
     pub items: Vec<Token>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct FuncTypeNode {
     pub returns: TypeNode,
     pub args: Vec<(Option<Box<str>>, TypeNode)>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct FuncStmtNode {
     pub start: Token,
     pub name: Token,
@@ -206,4 +212,26 @@ pub struct FuncStmtNode {
     pub body: Node,
     pub code: Option<*mut CodeValue>,
     pub scope: Option<Box<FuncScope>>,
+    pub implicit_return: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct ReturnNode {
+    pub start: Token,
+    pub value: Option<Node>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum UnaryOP {
+    Minus,
+    Plus,
+    Not,
+}
+
+#[derive(Clone, Debug)]
+pub struct UnaryNode {
+    pub start: Token,
+    pub atom: Node,
+    pub ops: Vec<UnaryOP>,
+    pub ctype: Option<CompileType>,
 }

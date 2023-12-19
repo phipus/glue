@@ -2,12 +2,11 @@ use super::{
     ast::{
         AssignmentNode, BinaryOpNode, BinaryOperand, BlockNode, BoolNode, CallNode,
         DeclarationNode, FieldNode, FloatNode, FuncStmtNode, IdentTypeNode, IfElseNode, IntNode,
-        TypeNode, VariableNode,
+        ReturnNode, TypeNode, UnaryNode, UnaryOP, VariableNode,
     },
     compile::Node,
     error::CompileError,
     scan::{token, Scan, Token},
-    typing::CompileType,
 };
 
 pub struct Parse<'a> {
@@ -92,9 +91,42 @@ impl<'a> Parse<'a> {
         }
     }
 
+    fn parse_unary(&mut self) -> Result<Node> {
+        let mut ops = Vec::new();
+        let start = self.l0;
+
+        loop {
+            if self.l0.kind == '-' as i32 {
+                ops.push(UnaryOP::Minus);
+                self.consume();
+            } else if self.l0.kind == '!' as i32 {
+                ops.push(UnaryOP::Not);
+                self.consume();
+            } else if self.l0.kind == '+' as i32 {
+                ops.push(UnaryOP::Plus);
+                self.consume();
+            } else {
+                break;
+            }
+        }
+
+        match ops.len() {
+            0 => self.parse_postfix(),
+            _ => {
+                let atom = self.parse_postfix()?;
+                Ok(Node::Unary(Box::new(UnaryNode {
+                    start,
+                    atom,
+                    ops,
+                    ctype: None,
+                })))
+            }
+        }
+    }
+
     fn parse_factor(&mut self) -> Result<Node> {
         self.parse_binaryop(
-            |p| p.parse_postfix(),
+            |p| p.parse_unary(),
             &[
                 ('*' as i32, BinaryOperand::Mul),
                 ('/' as i32, BinaryOperand::Div),
@@ -112,14 +144,30 @@ impl<'a> Parse<'a> {
         )
     }
 
+    fn parse_cmp(&mut self) -> Result<Node> {
+        self.parse_binaryop(
+            |p| p.parse_term(),
+            &[
+                ('>' as i32, BinaryOperand::Gt),
+                (token::GE, BinaryOperand::Ge),
+                (token::EQ, BinaryOperand::Eq),
+                (token::NE, BinaryOperand::Ne),
+                (token::LE, BinaryOperand::Le),
+                ('<' as i32, BinaryOperand::Lt),
+            ],
+        )
+    }
+
     pub fn parse_expr(&mut self) -> Result<Node> {
-        self.parse_term()
+        self.parse_cmp()
     }
 
     pub fn parse_stmt(&mut self, with_semicolon: bool) -> Result<Node> {
         let (node, requires_semicolon) = match self.l0.kind {
             token::LET => (self.parse_let_stmt()?, true),
             token::IF => (self.parse_if_stmt()?, false),
+            token::FN => (self.parse_fn_stmt()?, false),
+            token::RETURN => (self.parse_return_stmt()?, true),
             _ => {
                 let left = self.parse_expr()?;
                 if self.l0.kind == '=' as i32 {
@@ -164,7 +212,7 @@ impl<'a> Parse<'a> {
             }
             return Ok(Node::BinaryOp(Box::new(BinaryOpNode {
                 initial,
-                expr_type: CompileType::Bool,
+                expr_types: Vec::new(),
                 ops: node_ops,
             })));
         }
@@ -243,7 +291,7 @@ impl<'a> Parse<'a> {
 
                 Ok(TypeNode::Ident(IdentTypeNode { start, items }))
             }
-            _ => Err(self.err_unexpected_token(&self.l0))
+            _ => Err(self.err_unexpected_token(&self.l0)),
         }
     }
 
@@ -268,6 +316,7 @@ impl<'a> Parse<'a> {
             body,
             code: None,
             scope: None,
+            implicit_return: false,
         })))
     }
 
@@ -294,6 +343,18 @@ impl<'a> Parse<'a> {
         self.consume_token(')' as i32)?;
 
         Ok(args)
+    }
+
+    fn parse_return_stmt(&mut self) -> Result<Node> {
+        let start = self.consume_token(token::RETURN)?;
+
+        let value = if self.l0.kind != ';' as i32 {
+            Some(self.parse_expr()?)
+        } else {
+            None
+        };
+
+        Ok(Node::Return(Box::new(ReturnNode { start, value })))
     }
 
     pub fn parse_block(&mut self, kind: BlockKind) -> Result<Node> {

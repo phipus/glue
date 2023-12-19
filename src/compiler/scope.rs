@@ -5,7 +5,7 @@ use crate::{rtype::RuntimeType, runtime::Function};
 
 use super::typing::{CompileType, TypeRepo};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct FuncScope {
     pub parent: Option<Box<FuncScope>>,
     pub names: HashMap<Box<str>, SymbolID>,
@@ -214,7 +214,7 @@ pub struct SymbolID {
     index: usize,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum SymbolKind {
     Variable {
         scopeid: u32,
@@ -227,13 +227,13 @@ pub enum SymbolKind {
     Type,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Symbol {
     pub ctype: CompileType,
     pub kind: SymbolKind,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum SymbolLocation {
     Local { offset: u32 },
     Function { ptr: *mut Function },

@@ -1,5 +1,9 @@
 use crate::{
-    gc::Collector, instr::Instruction, rtype::RuntimeType, runtime::Function, rvalue::Value,
+    gc::Collector,
+    instr::Instruction,
+    rtype::RuntimeType,
+    runtime::Function,
+    rvalue::{TypedValue, Value},
 };
 
 pub struct Builtins {
@@ -18,7 +22,7 @@ fn create_native_func(
     gc: &mut Collector,
     args: Box<[RuntimeType]>,
     retc: u32,
-    f: fn(&mut [Value], &mut Vec<(Value, RuntimeType)>),
+    f: fn(&mut [Value], &mut Vec<TypedValue>),
 ) -> *mut Function {
     create_func(
         gc,
@@ -41,6 +45,6 @@ fn create_func(
     return unsafe { gc.new_function(code, ftype, 0, argc, retc) };
 }
 
-fn print_float(locals: &mut [Value], _eval_stack: &mut Vec<(Value, RuntimeType)>) {
+fn print_float(locals: &mut [Value], _eval_stack: &mut Vec<TypedValue>) {
     println!("{}", unsafe { locals[0].f })
 }

@@ -70,12 +70,44 @@ pub struct ObjectValue {
     pub rtype: *mut ObjectRuntimeType,
 }
 
-pub fn value_truethy(v: Value, t: RuntimeType) -> bool {
-    match t {
-        RuntimeType::Bool => unsafe { v.b },
-        RuntimeType::Uint => unsafe { v.u != 0 },
-        RuntimeType::Int => unsafe { v.i != 0 },
-        RuntimeType::Float => unsafe { v.f != 0.0 },
-        RuntimeType::Code | RuntimeType::InterfaceVT | RuntimeType::Object => true,
+#[derive(Clone, Copy)]
+pub struct TypedValue {
+    pub value: Value,
+    pub rtype: RuntimeType,
+}
+
+impl From<bool> for TypedValue {
+    fn from(value: bool) -> Self {
+        Self {
+            value: value.into(),
+            rtype: RuntimeType::Bool,
+        }
+    }
+}
+
+impl From<u64> for TypedValue {
+    fn from(value: u64) -> Self {
+        Self {
+            value: value.into(),
+            rtype: RuntimeType::Uint,
+        }
+    }
+}
+
+impl From<i64> for TypedValue {
+    fn from(value: i64) -> Self {
+        Self {
+            value: value.into(),
+            rtype: RuntimeType::Int,
+        }
+    }
+}
+
+impl From<f64> for TypedValue {
+    fn from(value: f64) -> Self {
+        Self {
+            value: value.into(),
+            rtype: RuntimeType::Int,
+        }
     }
 }

@@ -1,10 +1,11 @@
-use std::sync::{Mutex, Arc};
+use std::sync::{Arc, Mutex};
 
 use glue::{
+    gc::Collector,
     instr::Instruction,
     rtype::RuntimeType,
     runtime::{FrameType, Function, Thread},
-    rvalue::{CodeValue, Value}, gc::Collector,
+    rvalue::{CodeValue, TypedValue, Value},
 };
 
 fn main() {
@@ -49,16 +50,19 @@ fn main() {
     };
 
     unsafe {
-        t.push_frame(&mut main_ftype as *mut FrameType, &mut main_code as *mut CodeValue, 0);
+        t.push_frame(
+            &mut main_ftype as *mut FrameType,
+            &mut main_code as *mut CodeValue,
+            0,
+        );
         t.eval().unwrap();
     }
-    
 }
 
-fn hello_world(_locals: &mut [Value], _eval_stack: &mut Vec<(Value, RuntimeType)>) {
+fn hello_world(_locals: &mut [Value], _eval_stack: &mut Vec<TypedValue>) {
     println!("Hello World");
 }
 
-fn print_float(locals: &mut [Value], _eval_stack: &mut Vec<(Value, RuntimeType)>) {
+fn print_float(locals: &mut [Value], _eval_stack: &mut Vec<TypedValue>) {
     println!("{}", unsafe { locals[0].f })
 }

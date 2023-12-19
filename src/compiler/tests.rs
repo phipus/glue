@@ -52,3 +52,38 @@ fn test_if_else() {
     test_print_code(code);
     test_run_code(code);
 }
+
+#[test]
+fn test_fn_stmt() {
+    let code = r#"
+        fn print_fortytwo(): unit {
+            print_float(42);
+        }
+
+        fn print_float2(a: float, b: float): unit {
+            print_float(a);
+            print_float(b);
+        }
+
+        fn add_float(a: float, b: float) {
+            return a + b;
+        }
+
+        fn abs_float(f: float) {
+            if f >= 0 {
+                return f;
+            }
+            return -f;
+        }
+
+        print_fortytwo();
+        print_float2(8, 17);
+        
+        print_float(add_float(39.7, 2.3));
+
+        print_float(abs_float(2));
+        print_float(abs_float(-2));
+    "#;
+
+    test_run_code(code);
+}

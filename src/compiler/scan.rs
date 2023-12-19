@@ -72,6 +72,16 @@ pub struct Token {
     pub col_end: i32,
 }
 
+impl std::fmt::Debug for Token {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Token {{ kind: {}, start : {}, end: {} }}",
+            self.kind, self.start, self.end
+        )
+    }
+}
+
 pub struct Scan<'a> {
     pub filename: &'a str,
     pub chars: CharIndices<'a>,
@@ -136,8 +146,8 @@ impl<'a> Scan<'a> {
 
         while let Some(ch) = self.l0 {
             match ch.value {
-                '{' | '}' | '[' | ']' | '(' | ')' | '.' | ';' | ':' => {
-                    // breaking character
+                // breaking character
+                '{' | '}' | '[' | ']' | '(' | ')' | '.' | ';' | ':' | ',' => {
                     if start.start == ch.start {
                         self.l0 = self.chars.next();
                         return self.create_token(&start, &ch);
@@ -145,25 +155,26 @@ impl<'a> Scan<'a> {
                     return self.create_token(&start, &end);
                 }
 
-                '=' => {
-                    if start.start != ch.start {
-                        if start.value == '=' || can_before_equals(start.value) {
-                            self.l0 = self.chars.next();
-                            return self.create_token(&start, &ch);
-                        } else {
-                            return self.create_token(&start, &end);
-                        }
-                    } else {
-                        end = ch;
+                // breaking character that can be followed by an '='
+                '<' | '>' | '!' | '&' | '|' | '+' | '-' | '*' | '/' | '=' => {
+                    if start.start == ch.start {
+                        let end;
                         self.l0 = self.chars.next();
-                    }
-                }
+                        if let Some(ch) = self.l0 {
+                            if ch.value == '=' {
+                                end = ch;
+                                self.l0 = self.chars.next();
+                            } else {
+                                end = start;
+                            }
+                        } else {
+                            end = start;
+                        }
 
-                value if can_before_equals(value) => {
-                    if start.start != ch.start {
                         return self.create_token(&start, &end);
                     }
-                    self.l0 = self.chars.next();
+
+                    return self.create_token(&start, &end);
                 }
 
                 value if value.is_whitespace() => {
@@ -171,7 +182,7 @@ impl<'a> Scan<'a> {
                     break;
                 }
 
-                value if value.is_digit(10) => {
+                value if value.is_digit(10) && ch.start == start.start => {
                     self.l0 = self.chars.next();
                     while let Some(ch) = self.l0 {
                         match ch.value {
@@ -215,6 +226,7 @@ pub mod token {
         , IF
         , ELSE
         , FN
+        , RETURN
     }
 }
 
@@ -242,13 +254,6 @@ mod tests {
                 assert_eq!(want_kind, has_kind);
             }
         }
-    }
-}
-
-fn can_before_equals(c: char) -> bool {
-    match c {
-        '<' | '>' | '!' | '&' | '|' | '+' | '-' | '*' | '/' => true,
-        _ => false,
     }
 }
 
@@ -354,6 +359,7 @@ lazy_static! {
         char_token('}'),
         char_token('.'),
         char_token(':'),
+        char_token(','),
         str_token(">=", token::GE),
         str_token("<=", token::LE),
         str_token("true", token::TRUE),
@@ -362,6 +368,7 @@ lazy_static! {
         str_token("if", token::IF),
         str_token("else", token::ELSE),
         str_token("fn", token::FN),
+        str_token("return", token::RETURN),
         expr_token(r"^(0|[1-9][0-9]*)$", token::INT),
         expr_token(r"^([1-9][0-9]*|0)\.[0-9]+$", token::FLOAT),
         expr_token(r"^[a-zA-Z_][a-zA-Z_0-9]*$", token::IDENT),

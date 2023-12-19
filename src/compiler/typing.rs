@@ -6,6 +6,7 @@ use super::compile::Node;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompileType {
+    Never,
     Unit,
     Bool,
     Uint,
@@ -18,6 +19,7 @@ pub enum CompileType {
 impl CompileType {
     pub fn get_size(&self, _repo: &TypeRepo) -> u32 {
         match self {
+            Self::Never => 0,
             Self::Unit => 0,
             Self::Bool | Self::Uint | Self::Int | Self::Float => 1,
             Self::Func(_) => panic!("can not get size of a function"),
@@ -28,6 +30,7 @@ impl CompileType {
     pub fn fields(&self, rtypes: &mut Vec<RuntimeType>, _repo: &TypeRepo) -> u32 {
         let len = rtypes.len();
         match self {
+            Self::Never => (),
             Self::Unit => (),
             Self::Bool => rtypes.push(RuntimeType::Bool),
             Self::Uint => rtypes.push(RuntimeType::Uint),
@@ -38,6 +41,17 @@ impl CompileType {
         }
 
         (rtypes.len() - len) as u32
+    }
+
+    pub fn is_assignable_to(&self, t: CompileType, _repo: &TypeRepo) -> bool {
+        if self == &t {
+            return true;
+        }
+
+        match self {
+            Self::Never => t == CompileType::Unit,
+            _ => false,
+        }
     }
 }
 
@@ -88,7 +102,7 @@ pub struct Field {
     pub is_variable: bool,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct FieldInfo {
     pub ctype: CompileType,
     pub offset: u32,
