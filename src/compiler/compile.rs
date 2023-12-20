@@ -1,6 +1,11 @@
 use std::sync::Mutex;
 
-use crate::{gc::Collector, instr::Instruction, rtype::RuntimeType, runtime::Function};
+use crate::{
+    gc::Collector,
+    instr::Instruction,
+    rtype::RuntimeType,
+    runtime::{FrameType, Function},
+};
 
 use super::{
     ast::{
@@ -15,18 +20,6 @@ use super::{
 };
 
 type Result<T> = std::result::Result<T, CompileError>;
-
-pub trait NodeValueold {
-    fn start_token(&self) -> Token;
-    fn end_token(&self) -> Token;
-    fn check_type(
-        &mut self,
-        ctx: &mut CompileContext,
-        type_hint: Option<CompileType>,
-    ) -> Result<CompileType>;
-
-    fn compile(&self, ctx: &mut CompileContext, code: &mut Vec<Instruction>) -> Result<()>;
-}
 
 #[derive(Clone, Debug)]
 pub enum Node {
@@ -290,38 +283,90 @@ impl Node {
                 Ok(ctype)
             }
             Self::Call(n) => {
-                let typ = n.value.check_type(ctx, None)?;
-                let funcid = match typ {
-                    CompileType::Func(id) => id,
-                    _ => return Err(CompileError::TypeError(format!("can not call {:?}", typ))),
-                };
+                // check if we call a method
+                if let Node::Field(field_node) = &mut n.value {
+                    let typ = field_node.expr.check_type(ctx, None)?;
+                    let obj_id = match typ {
+                        CompileType::Object(id) => id,
+                        _ => {
+                            return Err(CompileError::TypeError(format!(
+                                "{:?} has no methods",
+                                typ
+                            )))
+                        }
+                    };
 
-                let ftype = ctx.trepo.get_func(funcid).clone();
-                if let Some(type_hint) = type_hint {
-                    if type_hint != ftype.returns {
+                    let obj_type = ctx.trepo.get_object(obj_id);
+                    let field_name = &ctx.input[field_node.field.start..field_node.field.end];
+                    let (_func, func_id) = match obj_type.get_method_by_name(field_name) {
+                        Some(method) => method,
+                        None => {
+                            return Err(CompileError::TypeError(format!(
+                                "object has no method {}",
+                                field_name
+                            )))
+                        }
+                    };
+                    let func_type = ctx.trepo.get_func(func_id).clone();
+
+                    // check that the return type matches the type hint if provided
+                    if let Some(type_hint) = type_hint {
+                        if !func_type.returns.is_assignable_to(type_hint, &ctx.trepo) {
+                            return Err(CompileError::TypeError(format!(
+                                "can not convert {:?} to {:?}",
+                                func_type.returns, type_hint
+                            )));
+                        }
+                    }
+
+                    // check the parameters. Ignore the first parameter,
+                    // because this will be the object itself
+                    if n.args.len() != func_type.args.len() - 1 {
                         return Err(CompileError::TypeError(format!(
-                            "can not convert {:?} to {:?}",
-                            ftype.returns, type_hint
+                            "expected {} arguments but got {}",
+                            func_type.args.len() - 1,
+                            n.args.len()
                         )));
                     }
-                }
 
-                if n.args.len() != ftype.args.len() {
-                    return Err(CompileError::TypeError(format!(
-                        "expected {} arguments but found {}",
-                        ftype.args.len(),
-                        n.args.len()
-                    )));
-                }
-
-                for (i, arg) in n.args.iter_mut().enumerate() {
-                    let argtype = arg.check_type(ctx, Some(ftype.args[i].ctype))?;
-                    if argtype != ftype.args[i].ctype {
-                        return Err(CompileError::TypeError(format!("unexpected argument type")));
+                    for (i, arg) in n.args.iter_mut().enumerate() {
+                        arg.check_type(ctx, Some(func_type.args[i + 1].ctype))?;
                     }
-                }
 
-                Ok(ftype.returns)
+                    Ok(func_type.returns)
+                } else {
+                    let typ = n.value.check_type(ctx, None)?;
+                    let funcid = match typ {
+                        CompileType::Func(id) => id,
+                        _ => {
+                            return Err(CompileError::TypeError(format!("can not call {:?}", typ)))
+                        }
+                    };
+
+                    let ftype = ctx.trepo.get_func(funcid).clone();
+                    if let Some(type_hint) = type_hint {
+                        if type_hint != ftype.returns {
+                            return Err(CompileError::TypeError(format!(
+                                "can not convert {:?} to {:?}",
+                                ftype.returns, type_hint
+                            )));
+                        }
+                    }
+
+                    if n.args.len() != ftype.args.len() {
+                        return Err(CompileError::TypeError(format!(
+                            "expected {} arguments but found {}",
+                            ftype.args.len(),
+                            n.args.len()
+                        )));
+                    }
+
+                    for (i, arg) in n.args.iter_mut().enumerate() {
+                        arg.check_type(ctx, Some(ftype.args[i].ctype))?;
+                    }
+
+                    Ok(ftype.returns)
+                }
             }
             Self::IfElse(n) => {
                 let mut is_never = true;
@@ -476,19 +521,25 @@ impl Node {
 
                 let ftype = scope.generate_frame(&ctx.trepo);
 
-                let (code, func) = unsafe {
+                let func = unsafe {
                     let mut gc = ctx.gc.lock().unwrap();
-                    let code = gc.new_code_obj(Box::new([]));
-                    let ftype = gc.new_frame_type(ftype.into_boxed_slice());
-                    let func = gc.new_function(code, ftype, 0, argc, retc);
-                    (code, func)
+                    let func = gc.new_function(
+                        Box::new([]),
+                        FrameType {
+                            field_types: ftype.into_boxed_slice(),
+                        },
+                        0,
+                        argc,
+                        retc,
+                    );
+                    func
                 };
 
                 let ctype = CompileType::Func(ctx.trepo.new_func(rtype, args));
                 ctx.scope
                     .declare_function(&ctx.input[n.name.start..n.name.end], ctype, func);
 
-                n.code = Some(code);
+                n.function = Some(func);
                 n.scope = Some(scope);
                 Ok(CompileType::Unit)
             }
@@ -809,7 +860,7 @@ impl Node {
                 n.scope = ctx.scope.pop_scope();
 
                 unsafe {
-                    (*n.code.unwrap()).instrs = code.into_boxed_slice();
+                    (*n.function.unwrap()).code = code.into_boxed_slice();
                 }
 
                 Ok(())

@@ -77,6 +77,7 @@ impl<'a> Parse<'a> {
                 value: atom,
                 args,
                 end,
+                call: None,
             })))
         } else if self.l0.kind == '.' as i32 {
             self.consume();
@@ -314,7 +315,7 @@ impl<'a> Parse<'a> {
             args,
             returns,
             body,
-            code: None,
+            function: None,
             scope: None,
             implicit_return: false,
         })))
@@ -402,7 +403,7 @@ mod tests {
         compiler::{compile::CompileContext, typing::CompileType},
         gc::Collector,
         instr::Instruction,
-        runtime::Thread,
+        runtime::{FrameType, Thread},
     };
 
     use super::Parse;
@@ -422,8 +423,7 @@ mod tests {
         expr.compile(&mut ctx, &mut code).unwrap();
 
         let builtins;
-        let code_obj;
-        let ftype;
+        let func;
         {
             let mut gc = gc.lock().unwrap();
             builtins = Builtins::new(&mut gc);
@@ -431,13 +431,22 @@ mod tests {
             code.push(Instruction::Call(builtins.print_float));
             code.push(Instruction::Ret);
 
-            code_obj = gc.new_code_obj(code.into_boxed_slice());
-            ftype = gc.new_frame_type(field_types.into_boxed_slice());
+            func = unsafe {
+                gc.new_function(
+                    code.into_boxed_slice(),
+                    FrameType {
+                        field_types: field_types.into_boxed_slice(),
+                    },
+                    0,
+                    0,
+                    0,
+                )
+            };
         };
 
         let mut rt = Thread::new(gc);
         unsafe {
-            rt.push_frame(ftype, code_obj, 0);
+            rt.push_function(func);
             rt.eval().unwrap();
         }
     }

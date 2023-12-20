@@ -1,9 +1,6 @@
 use std::ptr::null_mut;
 
-use crate::{
-    instr::Instruction,
-    rtype::{ObjectRuntimeType, RuntimeType},
-};
+use crate::rtype::{ObjectRuntimeType, RuntimeType};
 
 #[derive(Clone, Copy)]
 pub union Value {
@@ -12,7 +9,6 @@ pub union Value {
     pub i: i64,
     pub f: f64,
     pub o: *mut ObjectValue,
-    pub c: *mut CodeValue,
     pub v: *mut InterfaceVTValue,
 }
 
@@ -24,7 +20,6 @@ impl Value {
             RuntimeType::Int => Value { i: 0 },
             RuntimeType::Float => Value { f: 0.0 },
             RuntimeType::Object => Value { o: null_mut() },
-            RuntimeType::Code => Value { c: null_mut() },
             RuntimeType::InterfaceVT => Value { v: null_mut() },
         }
     }
@@ -54,14 +49,9 @@ impl From<f64> for Value {
     }
 }
 
-pub struct CodeValue {
-    pub alive: bool,
-    pub instrs: Box<[Instruction]>,
-}
-
 pub struct InterfaceVTValue {
     pub alive: bool,
-    pub funcs: Box<[(*mut CodeValue, usize)]>,
+    pub func_indice: Box<[usize]>,
 }
 
 pub struct ObjectValue {

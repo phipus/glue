@@ -1,7 +1,7 @@
 use crate::{
     rtype::{ObjectRuntimeType, RuntimeType},
     runtime::Function,
-    rvalue::{CodeValue, InterfaceVTValue, TypedValue, Value},
+    rvalue::{InterfaceVTValue, TypedValue, Value},
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -12,7 +12,6 @@ pub enum Instruction {
     Float(f64),
     Object(*mut ObjectRuntimeType),
     InterfaceVT(*mut InterfaceVTValue),
-    Code(*mut CodeValue),
     PushLocal(u32, RuntimeType),
     PopLocal(u32),
     GetField(u32, RuntimeType),

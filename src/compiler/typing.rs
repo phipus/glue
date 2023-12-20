@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::rtype::RuntimeType;
+use crate::{rtype::RuntimeType, runtime::Function};
 
 use super::compile::Node;
 
@@ -76,7 +76,9 @@ pub struct FuncID {
 #[derive(Clone)]
 pub struct ObjectType {
     field_names: HashMap<Box<str>, usize>,
+    method_names: HashMap<Box<str>, usize>,
     fields: Vec<FieldInfo>,
+    methods: Vec<(*mut Function, FuncID)>,
 }
 
 impl ObjectType {
@@ -93,6 +95,21 @@ impl ObjectType {
 
     pub fn get_field_index(&self, name: &str) -> Option<usize> {
         self.field_names.get(name).map(|idx| *idx)
+    }
+
+    pub fn get_method_by_name(&self, name: &str) -> Option<(*mut Function, FuncID)> {
+        match self.method_names.get(name) {
+            Some(index) => Some(self.methods[*index]),
+            None => None,
+        }
+    }
+
+    pub fn get_method_by_index(&self, index: usize) -> (*mut Function, FuncID) {
+        self.methods[index]
+    }
+
+    pub fn get_method_index(&self, name: &str) -> Option<usize> {
+        self.method_names.get(name).map(|idx| *idx)
     }
 }
 
@@ -175,7 +192,10 @@ impl TypeRepo {
         self.object_types.push(ObjectType {
             field_names,
             fields,
+            method_names: HashMap::new(),
+            methods: Vec::new(),
         });
         return id;
     }
 }
+

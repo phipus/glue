@@ -1,6 +1,10 @@
 use std::sync::Mutex;
 
-use crate::{gc::Collector, instr::Instruction, runtime::Function};
+use crate::{
+    gc::Collector,
+    instr::Instruction,
+    runtime::{FrameType, Function},
+};
 
 use self::{
     builtins::declare_builtins,
@@ -33,7 +37,6 @@ pub fn compile_file<'a>(
     declare_builtins(&mut ctx);
 
     ctx.scope.push_new_scope();
-    
 
     let mut code = Vec::<Instruction>::new();
 
@@ -45,10 +48,18 @@ pub fn compile_file<'a>(
 
     let func = {
         let mut gc = gc.lock().unwrap();
-        let code = gc.new_code_obj(code.into_boxed_slice());
-        let ftype = gc.new_frame_type(frame_fields.into_boxed_slice());
         // SAFETY: we created code and ftype in the same gc, so new_function is safe
-        unsafe { gc.new_function(code, ftype, 0, 0, 0) }
+        unsafe {
+            gc.new_function(
+                code.into_boxed_slice(),
+                FrameType {
+                    field_types: frame_fields.into_boxed_slice(),
+                },
+                0,
+                0,
+                0,
+            )
+        }
     };
 
     Ok(func)

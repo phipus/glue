@@ -2,7 +2,7 @@ use crate::{
     gc::Collector,
     instr::Instruction,
     rtype::RuntimeType,
-    runtime::Function,
+    runtime::{FrameType, Function},
     rvalue::{TypedValue, Value},
 };
 
@@ -40,9 +40,17 @@ fn create_func(
     frame_type: Box<[RuntimeType]>,
     code: Box<[Instruction]>,
 ) -> *mut Function {
-    let code = gc.new_code_obj(code);
-    let ftype = gc.new_frame_type(frame_type);
-    return unsafe { gc.new_function(code, ftype, 0, argc, retc) };
+    return unsafe {
+        gc.new_function(
+            code,
+            FrameType {
+                field_types: frame_type,
+            },
+            0,
+            argc,
+            retc,
+        )
+    };
 }
 
 fn print_float(locals: &mut [Value], _eval_stack: &mut Vec<TypedValue>) {

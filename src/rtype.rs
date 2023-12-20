@@ -6,7 +6,6 @@ pub enum RuntimeType {
     Float,
     Object,
     InterfaceVT,
-    Code,
 }
 
 pub struct ObjectRuntimeType {

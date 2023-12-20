@@ -1,0 +1,12 @@
+import os
+
+interface Error {
+    fn error(): String,
+}
+
+class StringError(pub let message: String) : Error {
+    pub fn error(): String {
+        return message;
+    }
+}
+

@@ -1,4 +1,4 @@
-use crate::rvalue::CodeValue;
+use crate::runtime::Function;
 
 use super::{
     compile::{CompileContext, Node},
@@ -126,6 +126,13 @@ pub struct CallNode {
     pub value: Node,
     pub args: Vec<Node>,
     pub end: Token,
+    pub call: Option<CallKind>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum CallKind {
+    Function { func: *mut Function },
+    Method { func: *mut Function },
 }
 
 #[derive(Clone, Debug)]
@@ -210,7 +217,7 @@ pub struct FuncStmtNode {
     pub args: Vec<(Token, Option<TypeNode>)>,
     pub returns: Option<TypeNode>,
     pub body: Node,
-    pub code: Option<*mut CodeValue>,
+    pub function: Option<*mut Function>,
     pub scope: Option<Box<FuncScope>>,
     pub implicit_return: bool,
 }

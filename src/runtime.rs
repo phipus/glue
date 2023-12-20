@@ -7,7 +7,7 @@ use crate::{
     gc::Collector,
     instr::Instruction,
     rtype::RuntimeType,
-    rvalue::{CodeValue, TypedValue, Value},
+    rvalue::{TypedValue, Value},
 };
 
 pub struct Runtime {}
@@ -33,53 +33,29 @@ impl Thread {
         }
     }
 
-    pub unsafe fn push_frame(
-        &mut self,
-        ftype: *mut FrameType,
-        code: *mut CodeValue,
-        code_offset: usize,
-    ) {
+    pub unsafe fn push_function(&mut self, func: *mut Function) {
         self.call_stack.push(StackFrame {
-            code_value: code,
-            code: &(*code).instrs[..],
-            code_offset,
+            function: func,
+            code_offset: (*func).code_offset,
             fp: self.locals.len(),
-            ftype,
         });
-        for rtype in (*ftype).field_types.iter() {
+        for rtype in (*func).ftype.field_types.iter() {
             self.locals.push(Value::default(*rtype))
         }
     }
 
-    fn get_code_and_fp(&self) -> (&'static [Instruction], usize, usize) {
-        let len = self.call_stack.len();
-        let frame = &self.call_stack[len - 1];
-
-        (frame.code, frame.code_offset, frame.fp)
-    }
-
-    fn backup_code_and_fp(&mut self, code: &'static [Instruction], code_offset: usize, fp: usize) {
-        match self.call_stack.last_mut() {
-            None => (),
-            Some(frame) => {
-                frame.code = code;
-                frame.code_offset = code_offset;
-                frame.fp = fp;
-            }
-        }
-    }
-
     pub unsafe fn eval(&mut self) -> Result<()> {
-        let mut code;
-        let mut code_offset;
-        let mut fp;
-        (code, code_offset, fp) = self.get_code_and_fp();
+        let mut frame = self
+            .call_stack
+            .pop()
+            .expect("eval called with no frame on the stack");
 
+        let mut code = &*(*frame.function).code;
         let mut last_field = None;
 
         loop {
-            let instr = code[code_offset];
-            code_offset += 1;
+            let instr = code[frame.code_offset];
+            frame.code_offset += 1;
 
             match instr {
                 Instruction::Bool(b) => self.eval_stack.push(b.into()),
@@ -97,16 +73,15 @@ impl Thread {
                     });
                 }
                 Instruction::InterfaceVT(_) => todo!(),
-                Instruction::Code(_) => todo!(),
                 Instruction::PushLocal(offset, rtype) => {
                     self.eval_stack.push(TypedValue {
-                        value: self.locals[fp + offset as usize],
+                        value: self.locals[frame.fp + offset as usize],
                         rtype,
                     });
                 }
                 Instruction::PopLocal(offset) => match self.eval_stack.pop() {
                     None => (),
-                    Some(v) => self.locals[fp + offset as usize] = v.value,
+                    Some(v) => self.locals[frame.fp + offset as usize] = v.value,
                 },
                 Instruction::GetField(offset, rtype) => {
                     match self.eval_stack.pop() {
@@ -138,27 +113,26 @@ impl Thread {
                 Instruction::PopDiscard => {
                     self.eval_stack.pop();
                 }
-                Instruction::Call(func_ptr) => {
-                    let func = &*func_ptr;
-                    self.backup_code_and_fp(code, code_offset, fp);
-                    self.push_frame(func.ftype, func.code, func.code_offset);
-                    (code, code_offset, fp) = self.get_code_and_fp();
+                Instruction::Call(func) => {
+                    self.call_stack.push(frame);
+                    self.push_function(func);
+
+                    frame = self.call_stack.pop().unwrap();
+                    code = &*(*frame.function).code;
 
                     let len = self.eval_stack.len();
-                    for i in 1..=func.argc as usize {
+                    for i in 1..=(*frame.function).argc as usize {
                         let arg = self.eval_stack.pop().expect("glue: not enough arguments");
-                        self.locals[fp + len - i] = arg.value;
+                        self.locals[frame.fp + len - i] = arg.value;
                     }
                 }
-                Instruction::NativeCall(func) => func(&mut self.locals[fp..], &mut self.eval_stack),
+                Instruction::NativeCall(func) => func(&mut self.locals[frame.fp..], &mut self.eval_stack),
                 Instruction::Ret => match self.call_stack.pop() {
                     None => return Ok(()),
-                    Some(oldframe) => {
-                        self.locals.truncate(oldframe.fp);
-                        if self.call_stack.len() == 0 {
-                            return Ok(());
-                        }
-                        (code, code_offset, fp) = self.get_code_and_fp();
+                    Some(prev_frame) => {
+                        self.locals.truncate(frame.fp);
+                        frame = prev_frame;
+                        code = &*(*frame.function).code;
                     }
                 },
 
@@ -223,11 +197,11 @@ impl Thread {
                 Instruction::NegFloat => self.negop(|v| -v.f),
                 Instruction::NegBool => self.negop(|v| !v.b),
 
-                Instruction::Jump(offset) => code_offset = (code_offset as isize + offset) as usize,
+                Instruction::Jump(offset) => frame.code_offset = (frame.code_offset as isize + offset) as usize,
                 Instruction::JumpTrue(offset) => match self.eval_stack.pop() {
                     Some(value) => {
                         if value.value.b {
-                            code_offset = (code_offset as isize + offset) as usize
+                            frame.code_offset = (frame.code_offset as isize + offset) as usize
                         }
                     }
                     None => (),
@@ -235,7 +209,7 @@ impl Thread {
                 Instruction::JumpFalse(offset) => match self.eval_stack.pop() {
                     Some(value) => {
                         if !value.value.b {
-                            code_offset = (code_offset as isize + offset) as usize
+                            frame.code_offset = (frame.code_offset as isize + offset) as usize
                         }
                     }
                     None => (),
@@ -287,29 +261,22 @@ impl Thread {
             Some(v) => v.value = f(v.value).into(),
         }
     }
-
-    pub unsafe fn push_func(&mut self, func: *mut Function) {
-        self.push_frame((*func).ftype, (*func).code, (*func).code_offset)
-    }
 }
 
 pub struct StackFrame {
-    pub code_value: *mut CodeValue,
-    pub code: &'static [Instruction],
+    pub function: *mut Function,
     pub code_offset: usize,
     pub fp: usize,
-    pub ftype: *mut FrameType,
 }
 
 pub struct FrameType {
-    pub alive: bool,
     pub field_types: Box<[RuntimeType]>,
 }
 
 pub struct Function {
     pub alive: bool,
-    pub code: *mut CodeValue,
-    pub ftype: *mut FrameType,
+    pub code: Box<[Instruction]>,
+    pub ftype: FrameType,
     pub code_offset: usize,
     pub argc: u32,
     pub retc: u32,

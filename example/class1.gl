@@ -1,0 +1,18 @@
+interface Drivable {
+    fn drive(distance: float),
+}
+
+class Car(pub let brand: String, pub let model: String) : Drivable {
+    var odo: float;
+    
+    
+    pub fn drive(distance: float) {
+        odo += distance;
+    }
+}
+
+class Bike(pub let name: String) : Drivable {
+    pub fn drive(distance: float) {
+        // bike has no odometer
+    }
+}

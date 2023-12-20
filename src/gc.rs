@@ -2,13 +2,12 @@ use crate::{
     instr::Instruction,
     rtype::{ObjectRuntimeType, RuntimeType},
     runtime::{FrameType, Function},
-    rvalue::{CodeValue, InterfaceVTValue, ObjectValue, Value},
+    rvalue::{InterfaceVTValue, ObjectValue, Value},
 };
 
 pub struct Collector {
     pub objects: Vec<Box<ObjectValue>>,
     pub object_types: Vec<Box<ObjectRuntimeType>>,
-    pub code_objs: Vec<Box<CodeValue>>,
     pub frame_types: Vec<Box<FrameType>>,
     pub functions: Vec<Box<Function>>,
 }
@@ -18,7 +17,6 @@ impl Collector {
         Self {
             objects: Vec::new(),
             object_types: Vec::new(),
-            code_objs: Vec::new(),
             frame_types: Vec::new(),
             functions: Vec::new(),
         }
@@ -54,30 +52,10 @@ impl Collector {
         return ptr;
     }
 
-    pub fn new_code_obj(&mut self, code: Box<[Instruction]>) -> *mut CodeValue {
-        push_gcobject(
-            &mut self.code_objs,
-            CodeValue {
-                alive: true,
-                instrs: code,
-            },
-        )
-    }
-
-    pub fn new_frame_type(&mut self, field_types: Box<[RuntimeType]>) -> *mut FrameType {
-        push_gcobject(
-            &mut self.frame_types,
-            FrameType {
-                alive: true,
-                field_types,
-            },
-        )
-    }
-
     pub unsafe fn new_function(
         &mut self,
-        code: *mut CodeValue,
-        ftype: *mut FrameType,
+        code: Box<[Instruction]>,
+        ftype: FrameType,
         code_offset: usize,
         argc: u32,
         retc: u32,
@@ -100,7 +78,6 @@ pub unsafe fn mark_value(v: Value, rtype: RuntimeType) {
     match rtype {
         RuntimeType::Bool | RuntimeType::Int | RuntimeType::Uint | RuntimeType::Float => (),
         RuntimeType::Object => mark_object_value(v.o),
-        RuntimeType::Code => mark_code_value(v.c),
         RuntimeType::InterfaceVT => mark_interface_vt(v.v),
     }
 }
@@ -122,20 +99,6 @@ pub unsafe fn mark_object_value(ptr: *mut ObjectValue) {
     }
 }
 
-pub unsafe fn mark_code_value(ptr: *mut CodeValue) {
-    if ptr.is_null() {
-        return;
-    }
-
-    let v = &mut *ptr;
-    if v.alive {
-        return;
-    }
-    v.alive = true;
-
-    mark_instructions(&v.instrs);
-}
-
 pub unsafe fn mark_interface_vt(ptr: *mut InterfaceVTValue) {
     if ptr.is_null() {
         return;
@@ -145,18 +108,6 @@ pub unsafe fn mark_interface_vt(ptr: *mut InterfaceVTValue) {
     if v.alive {
         return;
     }
-    v.alive = true;
-
-    for (f, _) in v.funcs.iter() {
-        mark_code_value(*f);
-    }
-}
-
-pub unsafe fn mark_frame_type(ptr: *mut FrameType) {
-    if ptr.is_null() {
-        return;
-    }
-    let v = &mut *ptr;
     v.alive = true;
 }
 
@@ -169,7 +120,6 @@ pub unsafe fn mark_instructions(code: &[Instruction]) {
             Instruction::Float(_) => (),
             Instruction::Object(rtype) => (**rtype).alive = true,
             Instruction::InterfaceVT(vt) => mark_interface_vt(*vt),
-            Instruction::Code(code) => mark_code_value(*code),
             Instruction::PushLocal(_, _) => (),
             Instruction::PopLocal(_) => (),
             Instruction::GetField(_, _) => (),

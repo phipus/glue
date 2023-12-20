@@ -8,7 +8,7 @@ fn test_print_code(code: &str) {
     let gc = Mutex::new(Collector::new());
     let func = compile_file(&gc, code, "<inline>").unwrap();
 
-    let instrs = unsafe { &(*(*func).code).instrs };
+    let instrs = unsafe { &(*(*func).code) };
     for (i, instr) in instrs.iter().enumerate() {
         println!("{:4}: {:?}", i, instr)
     }
@@ -20,7 +20,7 @@ fn test_run_code(code: &str) {
 
     let mut t = Thread::new(Arc::new(gc));
     unsafe {
-        t.push_func(func);
+        t.push_function(func);
         t.eval().unwrap();
     }
 }
